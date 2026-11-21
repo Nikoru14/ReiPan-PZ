@@ -17,6 +17,7 @@
 #include "ingame/story_menu.h"                   // IsLockTblOn
 #include "outgame/option.h"                     // GetOptionWrk: b09, the look stick's y
 #include "reipan/gameplay/reipan_ots_geometry.h"
+#include "reipan/io/reipan_game_mouse.h"        // the mouse turns it too
 #include "system/os/system.h"                    // GetSysWrk: the game tick
 #include "reipan/io/reipan_log.h"                // ReiPan_LogPrintf
 #include "system/pad/pad.h"                     // pad_wrk
@@ -396,6 +397,7 @@ int UpdateLook()
 
     const float yaw_in = StickAxis(x);
     float       pitch_in = StickAxis(y);
+    const int   invert = (GetOptionWrk()->now.b09 == 1) != (g_set.invert_y != 0);
 
     if (yaw_in != 0.0f)
     {
@@ -407,11 +409,22 @@ int UpdateLook()
         /* Stick up is below centre: look up, unless either the game's
          * "Point of view" inversion or this camera's is on. */
         pitch_in = -pitch_in;
-        if ((GetOptionWrk()->now.b09 == 1) != (g_set.invert_y != 0))
+        if (invert)
         {
             pitch_in = -pitch_in;
         }
         g_pitch += pitch_in * Deg(kStickPitchDeg) * g_set.sensitivity;
+        moved = 1;
+    }
+
+    /* The mouse, MikuPan's way: its own sensitivity times the look speed. */
+    ReiPan_GameMouseRequestLook();
+    float mouse_yaw = 0.0f;
+    float mouse_pitch = 0.0f;
+    if (ReiPan_GameMouseLook(&mouse_yaw, &mouse_pitch))
+    {
+        g_yaw += mouse_yaw * g_set.sensitivity;
+        g_pitch += (invert ? -mouse_pitch : mouse_pitch) * g_set.sensitivity;
         moved = 1;
     }
 

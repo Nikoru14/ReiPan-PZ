@@ -13,6 +13,7 @@
 #include "../debug/reipan_events.h"
 #include "../debug/reipan_warp.h"
 #include "../gameplay/reipan_over_shoulder.h"
+#include "../io/reipan_game_mouse.h"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -1151,16 +1152,21 @@ void PersistSettingsIfChanged()
 
     static_assert(sizeof(ReiPan_ConfigCamera) == 12 * sizeof(int),
                   "ReiPan_ConfigCamera gained padding; compare by field");
+    static_assert(sizeof(ReiPan_ConfigMouse) == 8 * sizeof(int),
+                  "ReiPan_ConfigMouse gained padding; compare by field");
 
     ReiPan_ConfigRenderer before = reipan_config.renderer;
     ReiPan_ConfigCamera   camera_before = reipan_config.camera;
+    ReiPan_ConfigMouse    mouse_before = reipan_config.mouse;
     ReiPan_ConfigCapture();
 
     const Uint64 now = SDL_GetTicks();
     if (title_changed ||
         std::memcmp(&before, &reipan_config.renderer, sizeof(before)) != 0 ||
         std::memcmp(&camera_before, &reipan_config.camera,
-                    sizeof(camera_before)) != 0)
+                    sizeof(camera_before)) != 0 ||
+        std::memcmp(&mouse_before, &reipan_config.mouse,
+                    sizeof(mouse_before)) != 0)
     {
         g_settings_dirty_since = now != 0 ? now : 1;
         return;
@@ -2131,6 +2137,80 @@ void DrawGraphicsSettingsMenu()
     ImGui::EndMenu();
 }
 
+/* Settings > Controls > Mouse: looking, its speed, the Camera Obscura button's
+ * hold or toggle, and which control each mouse action is on.  The settle-and-
+ * save writes it out. */
+void DrawMouseSettingsMenu()
+{
+    if (!ImGui::BeginMenu("Mouse"))
+    {
+        return;
+    }
+
+    ReiPan_GameMouseSettings s;
+    ReiPan_GameMouseGetSettings(&s);
+    bool changed = false;
+
+    bool look = s.look != 0;
+    if (ImGui::MenuItem("Look with the mouse", nullptr, &look))
+    {
+        s.look = look ? 1 : 0;
+        changed = true;
+    }
+    ImGui::BeginDisabled(!look);
+    ImGui::PushItemWidth(200.0f);
+    changed |= ImGui::SliderFloat("Sensitivity", &s.sensitivity, 0.25f, 4.0f,
+                                  "%.2fx");
+    ImGui::PopItemWidth();
+    ImGui::EndDisabled();
+    ImGui::Separator();
+
+    ImGui::TextDisabled("Camera Obscura button");
+    if (ImGui::MenuItem("   Hold to keep it raised", nullptr, s.camera_toggle == 0))
+    {
+        s.camera_toggle = 0;
+        changed = true;
+    }
+    if (ImGui::MenuItem("   Click to raise, click to lower", nullptr,
+                        s.camera_toggle != 0))
+    {
+        s.camera_toggle = 1;
+        changed = true;
+    }
+    ImGui::Separator();
+
+    for (int act = 0; act < REIPAN_MOUSE_ACT_COUNT; act++)
+    {
+        if (ImGui::BeginMenu(ReiPan_GameMouseActionLabel(act)))
+        {
+            for (int src = 0; src < REIPAN_MOUSE_SRC_COUNT; src++)
+            {
+                if (ImGui::MenuItem(ReiPan_GameMouseSourceLabel(src), nullptr,
+                                    s.bind[act] == src))
+                {
+                    s.bind[act] = src;
+                    changed = true;
+                }
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::SameLine(260.0f);
+        ImGui::TextDisabled("%s", ReiPan_GameMouseSourceLabel(s.bind[act]));
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Reset mouse"))
+    {
+        ReiPan_GameMouseDefaults(&s);
+        changed = true;
+    }
+
+    if (changed)
+    {
+        ReiPan_GameMouseSetSettings(&s);
+    }
+    ImGui::EndMenu();
+}
+
 /* Settings > Controls.  The rebinding itself is a window -- twenty rows of
  * cells to click do not fit in a menu -- so this is the way to it, plus the
  * reset worth having without opening it. */
@@ -2143,6 +2223,7 @@ void DrawControlsSettingsMenu()
 
     ImGui::MenuItem("Rebind keyboard and gamepad...", nullptr,
                     &g_show_controls);
+    DrawMouseSettingsMenu();
     ImGui::Separator();
     if (ImGui::MenuItem("Reset all bindings", nullptr, false,
                         ReiPan_InputBindingsAreDefault() == 0))
@@ -2548,6 +2629,21 @@ void DrawMainMenuBar()
     DrawSettingsMenu();
     DrawAssistsMenu();
     DrawDebugMenu();
+
+    /* Mouse look captures the pointer, so it waits while this bar is up. */
+    ReiPan_GameMouseSettings mouse;
+    ReiPan_GameMouseGetSettings(&mouse);
+    if (mouse.look)
+    {
+        const char *hint = "F1 hides this bar and lets the mouse look around";
+        const float width = ImGui::CalcTextSize(hint).x;
+        const float x = ImGui::GetWindowWidth() - width - 12.0f;
+        if (x > ImGui::GetCursorPosX())
+        {
+            ImGui::SameLine(x);
+            ImGui::TextDisabled("%s", hint);
+        }
+    }
     ImGui::EndMainMenuBar();
 }
 
@@ -3373,6 +3469,11 @@ void RenderDrawData(SDL_GPUCommandBuffer *command_buffer,
 void NoteSettingsChanged()
 {
     MarkSettingsDirty();
+}
+
+bool MainMenuBarVisible()
+{
+    return g_show_main_menu_bar;
 }
 }
 

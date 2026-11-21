@@ -5,6 +5,7 @@
 #include "io/reipan_paths.h"
 #include "rendering/reipan_renderer.h"
 #include "gameplay/reipan_over_shoulder.h"
+#include "io/reipan_game_mouse.h"
 
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_stdinc.h>
@@ -153,6 +154,16 @@ ReiPan_Config reipan_config = {
         /* .fov               = */ 60.0f,
         /* .sensitivity       = */ 1.0f,
         /* .smoothing         = */ 0.3f,
+    },
+    /* .mouse = */ {
+        /* MikuPan's: look on, right raises the Camera Obscura while held,
+         * left the shutter, middle the lens shot, the wheel the film. */
+        /* .look              = */ 1,
+        /* .sensitivity       = */ 1.0f,
+        /* .camera_toggle     = */ 0,
+        /* .bind              = */ { REIPAN_MOUSE_SRC_RIGHT, REIPAN_MOUSE_SRC_LEFT,
+                                     REIPAN_MOUSE_SRC_MIDDLE, REIPAN_MOUSE_SRC_WHEEL_UP,
+                                     REIPAN_MOUSE_SRC_WHEEL_DOWN },
     },
 };
 
@@ -1364,6 +1375,28 @@ static void ConfigLoadOnce(void)
     ReadFloat("over_shoulder_camera", "sensitivity", &cam->sensitivity);
     ReadFloat("over_shoulder_camera", "smoothing", &cam->smoothing);
 
+    ReiPan_ConfigMouse *mouse = &reipan_config.mouse;
+    ReadInt("mouse", "look", &mouse->look);
+    ReadFloat("mouse", "sensitivity", &mouse->sensitivity);
+    {
+        const char *mode = Lookup("mouse", "camera_button");
+        if (mode != nullptr && mode[0] != '\0')
+        {
+            mouse->camera_toggle = SDL_strcasecmp(mode, "toggle") == 0 ? 1 : 0;
+        }
+        static const char *const kActKeys[REIPAN_MOUSE_ACT_COUNT] = {
+            "raise_camera", "shutter", "lens_shot", "film_previous", "film_next",
+        };
+        for (int i = 0; i < REIPAN_MOUSE_ACT_COUNT; i++)
+        {
+            const int src = ReiPan_GameMouseSourceFromName(Lookup("mouse", kActKeys[i]));
+            if (src >= 0)
+            {
+                mouse->bind[i] = src;
+            }
+        }
+    }
+
     LoadInputBindings();
     ReadTitle(&reipan_config.title, true);
 
@@ -1439,6 +1472,39 @@ std::string BuildCameraSection()
     return text;
 }
 
+/* [mouse]. */
+std::string BuildMouseSection()
+{
+    const ReiPan_ConfigMouse *m = &reipan_config.mouse;
+    char text[2048];
+    std::snprintf(
+        text, sizeof(text),
+        "\n[mouse]\n"
+        "; The mouse in play: it turns the over-the-shoulder camera and aims\n"
+        ";   the Camera Obscura (the pointer is captured while it does, and\n"
+        ";   free in every menu and while the overlay's bar is up; F1 hides\n"
+        ";   it). 0 off, 1 on.\n"
+        "look = %d\n"
+        "; How far it turns, 0.25..4.\n"
+        "sensitivity = %.2f\n"
+        "; hold: the Camera Obscura is up while its button is held.\n"
+        ";   toggle: a click raises it, another lowers it.\n"
+        "camera_button = %s\n"
+        "; What each is on: left, right, middle, x1 (back), x2 (forward),\n"
+        ";   wheel_up, wheel_down or none. The shutter, lens shot and film\n"
+        ";   changes work while the Camera Obscura is up.\n"
+        "raise_camera = %s\n"
+        "shutter = %s\n"
+        "lens_shot = %s\n"
+        "film_previous = %s\n"
+        "film_next = %s\n",
+        m->look, (double)m->sensitivity, m->camera_toggle ? "toggle" : "hold",
+        ReiPan_GameMouseSourceName(m->bind[0]), ReiPan_GameMouseSourceName(m->bind[1]),
+        ReiPan_GameMouseSourceName(m->bind[2]), ReiPan_GameMouseSourceName(m->bind[3]),
+        ReiPan_GameMouseSourceName(m->bind[4]));
+    return text;
+}
+
 } // namespace
 
 int ReiPan_ConfigSave(void)
@@ -1485,7 +1551,7 @@ int ReiPan_ConfigSave(void)
      * section is variable-length text rather than a fixed format string, and
      * regenerating it on the resize pass would be pure waste. */
     const std::string input_section = BuildInputSection();
-    const std::string camera_section = BuildCameraSection();
+    const std::string camera_section = BuildCameraSection() + BuildMouseSection();
     const std::string title_section = TitleText();
 
     auto format = [r, &input_section, &camera_section,
@@ -1878,6 +1944,17 @@ void ReiPan_ConfigApply(void)
     ots.sensitivity = c->sensitivity;
     ots.smoothing = c->smoothing;
     ReiPan_OverShoulderSetSettings(&ots);
+
+    const ReiPan_ConfigMouse *m = &reipan_config.mouse;
+    ReiPan_GameMouseSettings  gm;
+    gm.look = m->look;
+    gm.sensitivity = m->sensitivity;
+    gm.camera_toggle = m->camera_toggle;
+    for (int i = 0; i < REIPAN_MOUSE_ACT_COUNT; i++)
+    {
+        gm.bind[i] = m->bind[i];
+    }
+    ReiPan_GameMouseSetSettings(&gm);
 }
 
 void ReiPan_ConfigCapture(void)
@@ -1928,6 +2005,17 @@ void ReiPan_ConfigCapture(void)
     c->fov = ots.fov_deg;
     c->sensitivity = ots.sensitivity;
     c->smoothing = ots.smoothing;
+
+    ReiPan_GameMouseSettings gm;
+    ReiPan_GameMouseGetSettings(&gm);
+    ReiPan_ConfigMouse *m = &reipan_config.mouse;
+    m->look = gm.look;
+    m->sensitivity = gm.sensitivity;
+    m->camera_toggle = gm.camera_toggle;
+    for (int i = 0; i < REIPAN_MOUSE_ACT_COUNT; i++)
+    {
+        m->bind[i] = gm.bind[i];
+    }
 
     /* The windowed size, which the renderer latches while the window is not
      * fullscreen.  Reading the live window instead would store the desktop

@@ -6,6 +6,7 @@
 #include "../reipan_config.h"
 #include "../rendering/reipan_renderer.h"
 #include "../gameplay/reipan_over_shoulder.h"
+#include "../io/reipan_game_mouse.h"
 
 #include "outgame/option.h"             // GetOptionWrk, OptionInit, OptionApplySound
 
@@ -788,6 +789,22 @@ Page GraphicsPage()
     return page;
 }
 
+/* The mouse in play (io/reipan_game_mouse.h); the overlay's settle-and-save
+ * writes reipan.ini. */
+ReiPan_GameMouseSettings MouseSettings()
+{
+    ReiPan_GameMouseSettings s;
+    ReiPan_GameMouseGetSettings(&s);
+    return s;
+}
+
+void EditMouse(const std::function<void(ReiPan_GameMouseSettings &)> &edit)
+{
+    ReiPan_GameMouseSettings s = MouseSettings();
+    edit(s);
+    ReiPan_GameMouseSetSettings(&s);
+}
+
 /* The game's Game Play and Controller screens (phases 22 and 23), and the
  * port's bindings. */
 Page ControlsPage()
@@ -823,6 +840,39 @@ Page ControlsPage()
         "Button layout", ButtonLayoutHelp, {"Type A", "Type B", "Type C"},
         [] { return std::clamp((int)GameOptions().pad_cfg, 0, 2); },
         [](int value) { GameOptions().pad_cfg = (signed char)value; }));
+
+    rows.push_back(Heading("Mouse"));
+    rows.push_back(Toggle(
+        "Mouse look",
+        Fixed("The mouse turns the over-the-shoulder camera and aims the "
+              "Camera Obscura. The pointer is captured while it does and free "
+              "in every menu, and while the overlay's bar is up: F1 hides it."),
+        [] { return MouseSettings().look != 0; },
+        [](bool on) {
+            EditMouse([on](ReiPan_GameMouseSettings &s) { s.look = on ? 1 : 0; });
+        }));
+    rows.push_back(When(
+        Slider("Mouse sensitivity", Fixed("How far the mouse turns."), 0.25f,
+               4.0f, 0.05f, [] { return MouseSettings().sensitivity; },
+               [](float value) {
+                   EditMouse([value](ReiPan_GameMouseSettings &s) {
+                       s.sensitivity = value;
+                   });
+               },
+               Format("%.2fx")),
+        [] { return MouseSettings().look != 0; }));
+    rows.push_back(Choice(
+        "Camera Obscura button",
+        Fixed("The mouse button that raises the Camera Obscura (right, unless "
+              "the overlay's Settings > Controls > Mouse moves it): held to "
+              "keep it up, or clicked once to raise it and again to lower it."),
+        {"Hold", "Toggle"},
+        [] { return MouseSettings().camera_toggle != 0 ? 1 : 0; },
+        [](int value) {
+            EditMouse([value](ReiPan_GameMouseSettings &s) {
+                s.camera_toggle = value != 0 ? 1 : 0;
+            });
+        }));
 
     rows.push_back(Heading("Bindings"));
     Row reset = When(

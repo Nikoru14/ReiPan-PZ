@@ -6,6 +6,7 @@
 #include "../io/reipan_file.h"
 #include "../io/reipan_input.h"
 #include "../io/reipan_menu_mouse.h"
+#include "../io/reipan_game_mouse.h"
 #include "../io/reipan_paths.h"
 #include "../reipan_config.h"
 #include "../reipan_profiler.h"
@@ -4079,6 +4080,8 @@ void PumpEvents()
         ReiPanUi::ProcessEvent(&event);
         ReiPan_MenuMouseEvent(&event, ReiPan_InputMenuPointerFree(),
                               ReiPan_InputMenuKeysFree());
+        /* Play's turn at it, once the menus have had theirs. */
+        ReiPan_GameMouseEvent(&event, ReiPan_InputMenuPointerFree());
         /* A menu that closes on this event lifts its hold on the controls
          * with it; the input layer keeps the closing press from the game. */
         ReiPanRml::ProcessEvent(&event);

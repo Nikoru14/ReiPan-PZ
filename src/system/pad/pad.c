@@ -12,6 +12,7 @@
 #include <string.h>                     // memset
 #include <stdlib.h>                     // abs
 #include <libpad.h>
+#include "reipan/gameplay/reipan_mouse_actions.h"   // PC: the mouse in play
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees in runs whose file is not settled yet (unassigned@ in tus.json).
@@ -367,6 +368,12 @@ static void PadReadFunc(PAD_WRK *pw)
 
         if (pad_wrk[pw->port].stick_dpad != 0)
             pw->held = PadStickToDpad(pw->held, pw->port);
+
+        // PC: the mouse's buttons in play press the game's own buttons
+        // (raise the Camera Obscura, the shutter, the lens shot), before
+        // the edges are taken so they make presses like the pad's.
+        if (pw->port == 0)
+            pw->held |= ReiPan_MouseActionPadBits();
 
         btn     = pw->held;
         trg     = btn & (pw->old ^ btn);

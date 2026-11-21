@@ -90,6 +90,10 @@ void RenderDrawData(SDL_GPUCommandBuffer *command_buffer,
  * the RmlUi options screen.  Only reipan_input's bindings need it: the
  * renderer's settings are noticed by the overlay's compare every frame. */
 void NoteSettingsChanged();
+
+/* The overlay's menu bar is up (F1).  While it is, the mouse stays free for it
+ * instead of looking around in play. */
+bool MainMenuBarVisible();
 }
 
 #endif

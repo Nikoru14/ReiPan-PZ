@@ -33,6 +33,7 @@
 #include "system/pad/pad.h"                 // pad_wrk
 #include "system/pad/pad_ctrl.h"
 #include "graphics/effect/effect_sub.h" // WorldToScreenPos
+#include "reipan/gameplay/reipan_mouse_actions.h"   // PC: the mouse wheel changes film
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees in runs whose file is not settled yet (unassigned@ in tus.json,
@@ -296,6 +297,10 @@ int GetDirTrg(u_char dir)
 {
     OPTION_DAT *opt = &GetOptionWrk()->now;
     u_short     mask;
+
+    // PC: the mouse wheel changes film too (0 previous, 1 next).
+    if ((dir == 0 || dir == 1) && ReiPan_MouseActionFilmTrg(dir))
+        return 1;
 
     switch (dir)
     {

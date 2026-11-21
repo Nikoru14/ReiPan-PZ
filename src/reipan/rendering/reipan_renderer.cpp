@@ -3028,6 +3028,15 @@ bool GradeIsIdentity()
  */
 bool NeedsPresentPass()
 {
+#ifdef __PROSPERO__
+    /* PS5: always.  SDL_GPU's Vulkan swapchain images are colour targets and
+     * copy destinations only -- not sampled, not copied or blitted from -- and
+     * the frame is read back by the room glow (sampled), the GS captures
+     * (blitted) and the pause capture (copied).  Desktop drivers let that by;
+     * RADV on the console read a garbage image view and faulted.  Drawn into
+     * the output texture instead, the frame is an ordinary texture. */
+    return true;
+#endif
     return HdrCompositionIsHdr(g_hdr_composition) || !GradeIsIdentity() ||
            (g_output_format != SDL_GPU_TEXTUREFORMAT_INVALID &&
             g_output_format != g_swapchain_format);

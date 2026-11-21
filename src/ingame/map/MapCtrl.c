@@ -31,6 +31,7 @@
 #include "ingame/plyr/plyr_sub.h"               // AllPlyrIsReady, PlyrMdlDrawAble
 #include "ingame/story_door.h"                  // MapDoorModeGet, MapDoorAreaAtPos, MapDoorRoomMhGet
 #include "reipan/reipan_memory.h"               // ReiPan_GetHostPointer
+#include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 #define MAP_PLYR_SHADOW_DROP 16.68f     // data 0x36b89c
 
@@ -206,7 +207,8 @@ void MapDrawChars(u_int skip)
     {
         if ((skip & 0x4) == 0)
             MapDrawPlyrShadow();
-        if ((skip & 0x1) == 0 && PlyrMdlDrawAble() != 0)
+        // PC: not while the over-the-shoulder camera is inside her shoulder.
+        if ((skip & 0x1) == 0 && PlyrMdlDrawAble() != 0 && !ReiPan_OverShoulderHidePlayer())
             MapDrawPlyrMdl();
     }
     if ((skip & 0x800) == 0)

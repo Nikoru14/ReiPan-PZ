@@ -53,6 +53,7 @@
 #include "system/pad/pad_ctrl.h"        // CheckPadNowPlaySe, CheckPadTrgPlaySe, pad_key
 #include "ingame/story_menu.h"  // IsLockTblOn
 #include "ingame/ingame_effect.h"     // IgEffectPlyrPutSet / IgEffectPlyrPutDelete (the player map-put)
+#include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees in runs whose file is not settled yet (unassigned@ in tus.json).
@@ -1520,6 +1521,8 @@ void PlyrMoveDirCtrl(void)
     float         rot[3];
     sceVu0FVECTOR cam_rot;
     float         d, t, a, b, c;
+    float         ots_yaw = 0.0f;   // PC
+    int           ots;              // PC
 
     rot[0] = 0.0f;
     rot[1] = 0.0f;
@@ -1543,9 +1546,21 @@ void PlyrMoveDirCtrl(void)
         ang = PlyrGetStickAngle();
     PlyrMoveSpeedCtrl(ang);
 
+    // PC: under the over-the-shoulder camera the stick is relative to its
+    // heading, not to the line from the camera to the player (which the
+    // shoulder offset skews), and it never cuts, so no cut hold applies.
+    ots = 0;
+    if (ang == 10.0f)
+        (void)ReiPan_OverShoulderMoveYaw(0.0f, 0, &ots_yaw);
+
     if (ang != 10.0f)
     {
         GetTrgtRot(gra3dGetCamera()->matCoord[3], ingame_wrk.plyr_wrk->pos, cam_rot, 2);
+        if (ReiPan_OverShoulderMoveYaw(cam_rot[1], 1, &ots_yaw))
+        {
+            cam_rot[1] = ots_yaw;
+            ots = 1;
+        }
         rot[0] = ang + cam_rot[1];
         plyr->cam_dir = cam_rot[1];
         RotLimitChk(&rot[0]);
@@ -1566,6 +1581,8 @@ void PlyrMoveDirCtrl(void)
             return;
         }
 
+        if (ots && (ingame_wrk.plyr_wrk->flags2 & 0x80000) != 0)
+            PlyrMapCamChgClear();       // PC: no cut to hold the facing across
         if ((ingame_wrk.plyr_wrk->flags2 & 0x80000) == 0)
         {
             ingame_wrk.plyr_wrk->rot_target[1] = rot[0];

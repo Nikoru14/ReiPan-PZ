@@ -25,6 +25,11 @@ void ReiPan_Graph3dApplyCamera(const GRA3DCAMERA *camera, const float (*view)[4]
 // colours from mesh, placed by local_world (row-major 4x4).
 void ReiPan_Graph3dDrawPresetMesh(SGDFILEHEADER *owner, SGDPROCUNITHEADER *vuvn,
                                   SGDPROCUNITHEADER *mesh, const float *local_world);
+// The same mesh, for the over-the-shoulder camera's collision: while the
+// scenery is being collected (reipan_ots_geometry.h), its triangles are
+// decoded once and this draw of them recorded with local_world.
+void ReiPan_Graph3dOtsRecordPresetMesh(SGDFILEHEADER *owner, SGDPROCUNITHEADER *vuvn,
+                                       SGDPROCUNITHEADER *mesh, const float *local_world);
 // A realtime (VU1-lit) mesh.
 void ReiPan_Graph3dDrawRuntimeMesh(SGDFILEHEADER *owner, SGDPROCUNITHEADER *vuvn,
                                    SGDPROCUNITHEADER *mesh, const float *local_world);

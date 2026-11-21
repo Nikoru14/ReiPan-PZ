@@ -31,6 +31,7 @@
 #include "ingame/map/RoomLoadAddr.h"            // RoomLoadAddrReset
 #include "ingame/map/map_height.h"              // MhInitMapHeight
 #include "ingame/photo/n_plyr_camera.h"         // PlyrCameraMapObjDraw
+#include "reipan/gameplay/reipan_ots_geometry.h"   // PC: the camera collision's scenery
 #include "ingame/plyr/player.h"                 // PLYR_WRK, PLYR_FLG_800000
 #include "ingame/plyr/plyr_sub.h"               // AllPlyrIsReady
 #include "ingame/map/MapDoor.h"      // door table, door motion pack
@@ -551,6 +552,12 @@ void MapDrawRooms(u_int flags)
     PLYR_WRK *plyr;
     int       area;
     int       on;
+    // PC: the rooms as drawn are what the over-the-shoulder camera collides
+    // with; not the mirror pass (0x200), whose world is reflected.
+    const int ots_scenery = (flags & 0x200) == 0;
+
+    if (ots_scenery)
+        ReiPan_OtsGeomBeginScenery();
 
     for (int i = 0; i < 2; i++)
     {
@@ -567,6 +574,9 @@ void MapDrawRooms(u_int flags)
         MapDrawRoom(MapLoadGetFreeMemAddr(i), flags);
     }
     gra3dSetDrawParam(0, 1.3f);
+
+    if (ots_scenery)
+        ReiPan_OtsGeomEndScenery();
 }
 
 // FF3 0x00118758.

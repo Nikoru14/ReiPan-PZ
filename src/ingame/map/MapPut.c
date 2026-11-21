@@ -26,6 +26,7 @@
 #include "ingame/map/MapLight.h"        // MapLightSetPlayerOnly, MapLightMakeRoomReal
 #include "ingame/map/MapObjWrk.h"       // MAP_OBJ_MDL, MapObjGetNoByPut
 #include "ingame/movie_room_menu/prg/movie_projecter.h"    // IsMoviePhase
+#include "reipan/gameplay/reipan_ots_geometry.h"   // PC: the camera collision's scenery
 
 static MAP_PUT       map_put_list[MAP_PUT_MAX];  // bss 0x389260
 static sceVu0FVECTOR map_put_ambient;   // bss 0x38e6c0: the ambient MapPutLightPush saved
@@ -676,6 +677,12 @@ void MapPutDraw(u_int flags)
 
     put = MapPutSort();
     map_put_light_push = 0;
+    // PC: placed models (furniture, doors, props) are scenery for the
+    // over-the-shoulder camera's collision; puts drawn by a function
+    // (characters, ghosts, the camera in the player's hands) are not, and
+    // neither is the mirror pass (0x200).
+    if ((flags & 0x200) == 0)
+        ReiPan_OtsGeomBeginScenery();
     for (; put != nullptr; put = put->next_draw)
     {
         map_put_now = put;
@@ -686,7 +693,9 @@ void MapPutDraw(u_int flags)
         {
             if (put->visible)
                 MapPutLightPush();
+            ReiPan_OtsGeomSuspend();
             put->func(put, flags);
+            ReiPan_OtsGeomResume();
         }
         else if (MapPutGetObjDrawFlg() != 0)
         {
@@ -704,6 +713,8 @@ void MapPutDraw(u_int flags)
         if (put->visible)
             MapPutLightPop();
     }
+    if ((flags & 0x200) == 0)
+        ReiPan_OtsGeomEndScenery();
 }
 
 // ──────────────────────────────────────────────────────────────────────

@@ -1214,6 +1214,7 @@ static void SetVUMeshDataP(SGDPROCUNITHEADER *pPUHead)
     switch (rVUMeshDesc.ucMeshType)
     {
     case iMT_0:
+        ReiPan_Graph3dOtsRecordPresetMesh(s_pSGDTop, pVUVN, pPUHead, &gra3dGetTransformRef(GRA3DTS_WORLD)[0][0]); // PC
         ReiPan_Graph3dDrawPresetMesh(s_pSGDTop, pVUVN, pPUHead, &gra3dGetTransformRef(GRA3DTS_WORLD)[0][0]); // PC
         gra3dDmaLoadVu1MicroProgram(VU1MPG_PRESET_0, 0);
         g3dDmaAddPacket(&pPUHead[2], rVUMeshDesc.iTagSize);
@@ -1230,6 +1231,7 @@ static void SetVUMeshDataP(SGDPROCUNITHEADER *pPUHead)
 
     case iMT_2:
     case iMT_2F:
+        ReiPan_Graph3dOtsRecordPresetMesh(s_pSGDTop, pVUVN, pPUHead, &gra3dGetTransformRef(GRA3DTS_WORLD)[0][0]); // PC
         ReiPan_Graph3dDrawPresetMesh(s_pSGDTop, pVUVN, pPUHead, &gra3dGetTransformRef(GRA3DTS_WORLD)[0][0]); // PC
         gra3dDmaLoadVu1MicroProgram(VU1MPG_PRESET_2, 0);
         g3dDmaAddPacket(&pVUVN[1], rVUVNDesc.ucSize);

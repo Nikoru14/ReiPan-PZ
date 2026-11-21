@@ -53,6 +53,7 @@
 #include "system/os/system.h"           // GetFrameTimeScale, GetPALMode
 #include "system/pad/pad.h"             // pad_wrk
 #include "system/pad/pad_ctrl.h"        // pad_key, PAD_KEY_*, CheckPadTrgPlaySe, CheckPadNowPlaySe
+#include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 // unassigned@00229478
 
@@ -884,6 +885,9 @@ void PlyrFinderModeStart(void)
 
     PlyrTurnFlagClear();
     plyr->finder_pitch = 0.0f;
+    // PC: from the over-the-shoulder camera, the viewfinder opens on what it
+    // was looking at: the player turns that way and the view takes its pitch.
+    ReiPan_OverShoulderFinderStart(&plyr->rot[1], &plyr->finder_pitch);
     plyr->finder_x     = 320.0f;
     plyr->finder_y     = 224.0f;
     plyr->hold_yaw     = plyr->rot[1];

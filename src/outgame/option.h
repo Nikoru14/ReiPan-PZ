@@ -31,7 +31,7 @@ struct OPTION_DAT                   /* 0x14 */
     /* 0x10 */ u_char      mono;        // SndSetMonoMode (FF2's stereo/mono setting)
     /* 0x11 */ u_char      b11;         // 1: d-pad mashing counts (PlyrGetMashInput); a change calls FUN_00242d50 (PlyrCtrlOptCheck); phase 22 row "Player Controls" (0 3rd person, 1 1st person)
     /* 0x12 */ u_char      b12;         // stick / d-pad pressure choice of GetStickRaw and GetDirTrg (unit_ctl.c); phase 22 row "Change film"
-    /* 0x13 */ u_char      b13;         // non-zero: left and right sticks swapped (unit_ctl.c); phase 22 row "Analog stick"
+    /* 0x13 */ u_char      b13;         // non-zero: in the viewfinder the right stick aims and the left steps (GetStickRaw 5 / 6; walking is always the left); phase 22 row "Analog stick"
 };
 static_assert(sizeof(OPTION_DAT) == 0x14, "OPTION_DAT is 0x14 bytes");
 static_assert(offsetof(OPTION_DAT, vol_ch1) == 0x01, "OPTION_DAT.vol_ch1");

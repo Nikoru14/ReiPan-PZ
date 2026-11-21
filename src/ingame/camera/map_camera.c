@@ -54,6 +54,7 @@
 #include "system/os/system.h"           // GetPALMode, GetFrameTimeScale
 #include "ingame/tattoo_event.h"         // TattooEvCameraMain
 #include "system/pad/pad.h"             // pad_wrk
+#include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees whose file is not settled yet.
@@ -151,11 +152,17 @@ int CameraMain(void)
     MAP_CAMERA_CTRL *pMcCtrl = &map_camera_ctrl;
     int              RectCamFlg = pMcCtrl->RectCamLastTime;
     int              type;
+    int              event_cam;
+
+    // PC: the over-the-shoulder camera puts the game's own camera back first,
+    // so the cameras below ease from their own shot.
+    ReiPan_OverShoulderBeginFrame();
 
     pMcCtrl->RectCamLastTime = 0;
 
     if (pMcCtrl->pFinCamTarget != nullptr)
     {
+        ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_PINNED);  // PC
         gra3dcamSetTarget(pMcCtrl->pFinCamTarget, 1);
         gra3dApplyCamera(nullptr, 1, 1);
     }
@@ -166,14 +173,17 @@ int CameraMain(void)
 
         if (ingame_wrk.plyr_wrk->flags & (PLYR_FLG_8000000 | PLYR_FLG_10000000))
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_CRAWL);  // PC
             FinderViewCameraCtrl();
         }
         else if (ingame_wrk.plyr_wrk->_0e0 & 1)
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_PEEP);  // PC
             CameraSetFromRotPair();
         }
         else if (ingame_wrk.plyr_wrk->flags & PLYR_FLG_800000)
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_FINDER);  // PC
             type = MrecGetCameraType();
             if (type < 100)
             {
@@ -189,23 +199,47 @@ int CameraMain(void)
         }
         else if (PlyrMode10IsStarting(ingame_wrk.plyr_wrk))
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_STANCE);  // PC
             CamStanceMain();
         }
         else if (ingame_wrk.plyr_wrk->mode != PLYR_MODE_5)
         {
             if (ingame_wrk.plyr_wrk->mode == PLYR_MODE_7 && app_camera.mode != 0)
             {
+                ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_APPROACH);  // PC
                 PlyrApproachCameraCtrl(RectCamFlg);
             }
             else if (TattooEvCameraMain(RectCamFlg) != 0)
             {
                 if (app_camera.mode != 0)
+                {
+                    ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_APPROACH);  // PC
                     PlyrApproachCameraCtrl(RectCamFlg);
+                }
                 else
+                {
+                    event_cam = pMcCtrl->EventCamFlg;
                     MapCamNormalCameraCtrl(RectCamFlg);
+                    // PC: the ordinary room camera, not an event's: the shot
+                    // the over-the-shoulder camera may replace.
+                    ReiPan_OverShoulderNoteCamera(event_cam == 0 ? REIPAN_OTS_CAM_MAP
+                                                                 : REIPAN_OTS_CAM_EVENT);
+                }
+            }
+            else
+            {
+                ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_TATTOO);  // PC
             }
         }
+        else
+        {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_LADDER);  // PC
+        }
     }
+
+    // PC: the over-the-shoulder camera, when it may replace this frame's shot;
+    // before the quake, which shakes whichever camera is on screen.
+    ReiPan_OverShoulderCameraCtrl();
 
     if (QuakeCameraCtrl.RequestFlg != 0)
         QuakeCameraMain();

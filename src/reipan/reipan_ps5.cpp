@@ -411,8 +411,11 @@ void ReportPads(unsigned frames)
 /* The watch: copies the console layer's reports into the log, says how the
  * controllers and the game's frames are doing, and writes the log out -- from
  * a thread of its own, so it still does when the game's thread is stuck. */
+extern "C" void ReiPan_Ps5ThreadReport(const char *name);
+
 int SDLCALL WatchThread(void *)
 {
+    ReiPan_Ps5ThreadReport("watch");
     for (;;)
     {
         SDL_Delay(1000);
@@ -423,6 +426,17 @@ int SDLCALL WatchThread(void *)
     return 0;
 }
 } // namespace
+
+extern "C" int scePthreadGetaffinity(pthread_t thread, uint64_t *mask);
+extern "C" int sceKernelGetCurrentCpu(void);
+
+extern "C" void ReiPan_Ps5ThreadReport(const char *name)
+{
+    uint64_t mask = 0;
+    const int rc = scePthreadGetaffinity(pthread_self(), &mask);
+    SDL_Log("PS5: %s thread on cpu %d, affinity %#llx (%d)", name, sceKernelGetCurrentCpu(),
+            (unsigned long long)mask, rc);
+}
 
 extern "C" void ReiPan_Ps5StartWatch(void)
 {

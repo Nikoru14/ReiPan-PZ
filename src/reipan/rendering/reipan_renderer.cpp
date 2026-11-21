@@ -11351,6 +11351,35 @@ void UpdatePerformanceStats(bool presented)
     stats.font_texture_creates = g_font_texture_creates;
     stats.font_texture_invalidations = g_font_texture_invalidations;
     ReiPanUi::SetPerformanceStats(stats);
+#ifdef __PROSPERO__
+    /* PS5: where the frame goes, every five seconds, in the log -- the
+     * overlay's profiler needs the controller and a screenshot. */
+    {
+        static int windows = 0;
+        if (++windows >= 5)
+        {
+            windows = 0;
+            const ReiPanProfilerStats &p = stats.profiler;
+            SDL_Log("PS5 perf: game %.1f fps, presents %.1f fps | frame %.1f ms "
+                    "(max %.1f) workload %.1f game cpu %.1f (max %.1f) vblank wait %.1f",
+                    stats.game_fps, stats.present_fps, p.frame_ms, p.frame_max_ms,
+                    p.workload_ms, p.game_cpu_ms, p.game_cpu_max_ms, p.vblank_wait_ms);
+            SDL_Log("PS5 perf: sgd %.1f mesh %.1f (light %.1f skin %.1f) billboard %.1f "
+                    "sky %.1f mapput %.1f+%.1f gs upload %.1f tex miss %.1f",
+                    p.sgd_cpu_ms, p.mesh_cpu_ms, p.mesh_lighting_ms, p.mesh_skinning_ms,
+                    p.billboard_cpu_ms, p.sky_cpu_ms, p.mapput_sort_ms,
+                    p.mapput_callback_ms, p.gs_upload_ms, p.texture_miss_ms);
+            SDL_Log("PS5 perf: renderer %.1f ms (max %.1f): upload %.1f record %.1f "
+                    "acquire %.1f (max %.1f) submit %.1f, gpu idle wait %.1f x%d | "
+                    "%zu draws, %d mesh tris",
+                    p.renderer_ms, p.renderer_max_ms, p.renderer_upload_ms,
+                    p.renderer_record_ms, p.renderer_acquire_ms, p.renderer_acquire_max_ms,
+                    p.renderer_submit_ms, p.gpu_idle_wait_ms, p.gpu_idle_waits,
+                    stats.draw_count, stats.mesh_triangles_submitted);
+            ReiPan_Ps5ThreadReport("game");
+        }
+    }
+#endif
 
     g_fps_window_start_counter = now;
     g_fps_game_frames = 0;

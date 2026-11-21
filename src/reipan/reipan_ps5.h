@@ -59,6 +59,9 @@ void ReiPan_Ps5FrameTick(void);
  * wrong, how the controllers and the game's frames are doing. */
 void ReiPan_Ps5StartWatch(void);
 
+/* Logs which CPU the calling thread is on and the CPUs it may run on. */
+void ReiPan_Ps5ThreadReport(const char *name);
+
 /* Walks through what SDL_GPU's Vulkan backend needs from RADV and logs each
  * answer, to say why SDL_GPU refused Vulkan. */
 void ReiPan_Ps5VulkanReport(void);

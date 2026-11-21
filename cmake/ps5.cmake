@@ -139,11 +139,12 @@ function(reipan_ps5_title target)
             PROPERTIES COMPILE_DEFINITIONS "REIPAN_PS5_TITLE_NAME=\"${REIPAN_PS5_TITLE_NAME}\"")
     target_compile_definitions(${target} PRIVATE
             "REIPAN_PS5_BUILD_LABEL=\"${REIPAN_PS5_BUILD_LABEL}\"")
-    # In an optimised build the game itself gets -O1 with the guards that
-    # code decompiled from the PS2 relies on (the desktop release build has
-    # known issues); the libraries keep the build type's -O2.
+    # In an optimised build the game keeps the build type's -O2, as ReiPan's
+    # desktop release builds do, with the guards that code decompiled from the
+    # PS2 relies on (MikuPan's PS5 build drops to -O1 for its own reasons; the
+    # game's frame is CPU-bound on the console's cores).
     target_compile_options(${target} PRIVATE
-            $<$<NOT:$<CONFIG:Debug>>:-O1 -fno-strict-aliasing -fwrapv -fno-delete-null-pointer-checks>)
+            $<$<NOT:$<CONFIG:Debug>>:-fno-strict-aliasing -fwrapv -fno-delete-null-pointer-checks>)
     set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
             "${native}/app-symbols.map" "${native}/ps5-pie.ld"
             "${REIPAN_PS5_DIR}/tools/link-title.sh"

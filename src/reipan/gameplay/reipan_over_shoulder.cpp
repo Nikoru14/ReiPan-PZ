@@ -241,12 +241,26 @@ int PlayerInOrdinaryControl(const PLYR_WRK *plyr)
     return 1;
 }
 
-/* She can walk: ordinary control, and neither the walking stick (lock 3) nor
- * the game's input (lock 4) locked by a script. */
-int PlayerCanWalk(const PLYR_WRK *plyr)
+/* She is in the player's hands: ordinary control or the Camera Obscura going
+ * up, up or coming down, and neither the walking stick (lock 3) nor the
+ * game's input (lock 4) locked by a script.  The Camera Obscura is counted so
+ * that raising and lowering it over an event camera's walk stays on this
+ * camera instead of cutting to the event's shot for the animation. */
+int PlayerInHand(const PLYR_WRK *plyr)
 {
-    return PlayerInOrdinaryControl(plyr) && !IsLockTblOn(3) && !IsLockTblOn(4) &&
-           !IsPadLocked(0);
+    if (plyr == nullptr)
+    {
+        return 0;
+    }
+    if (plyr->mode != PLYR_MODE_NORMAL && plyr->mode != PLYR_MODE_11)
+    {
+        return 0;
+    }
+    if ((plyr->flags & PLYR_FLG_PZL) != 0 || (plyr->_0e0 & 3) != 0)
+    {
+        return 0;
+    }
+    return !IsLockTblOn(3) && !IsLockTblOn(4) && !IsPadLocked(0);
 }
 
 /* ---- camera geometry ----------------------------------------------------- */
@@ -793,7 +807,7 @@ void ReiPan_OverShoulderCameraCtrl(void)
         g_logged_camera = g_game_camera;
     }
 
-    if (plyr != nullptr && PlayerCanWalk(plyr))
+    if (PlayerInHand(plyr))
     {
         if (g_walk_free_ticks < 100000)
         {

@@ -813,8 +813,10 @@ Page ControlsPage()
         {"Normal", "Reverse"}, [] { return GameOptions().b09 != 0 ? 1 : 0; },
         [](int value) { GameOptions().b09 = (u_char)value; }));
     rows.push_back(Choice(
-        "Analog stick", Fixed("Which stick walks and which aims the Camera Obscura."),
-        {"Left walks, right aims", "Right walks, left aims"},
+        "Analog stick",
+        Fixed("With the Camera Obscura raised: which stick aims it and which "
+              "steps. Walking is always the left stick."),
+        {"Left aims, right steps", "Right aims, left steps"},
         [] { return GameOptions().b13 != 0 ? 1 : 0; },
         [](int value) { GameOptions().b13 = (u_char)value; }));
     rows.push_back(Choice(

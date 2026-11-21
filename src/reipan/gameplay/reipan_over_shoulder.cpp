@@ -371,9 +371,12 @@ int UpdateLook()
 
     if (!IsPadLocked(0))
     {
-        /* The look stick: the right one, or the left with the sticks
-         * swapped in the game's options. */
-        GetStickRaw(6, &x, &y);
+        /* The right stick, always.  Walking is the left stick whatever the
+         * options say (GetStickRaw 2); the "Analog stick" option only swaps
+         * which stick aims and which steps inside the viewfinder (modes 5
+         * and 6), so following it here would put the camera on the walking
+         * stick. */
+        GetStickRaw(4, &x, &y);
     }
 
     const float yaw_in = StickAxis(x);

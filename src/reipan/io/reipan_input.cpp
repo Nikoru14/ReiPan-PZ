@@ -259,7 +259,8 @@ static void LoadGamepadMappings(void)
         return;
     }
 
-    if (!SDL_AddGamepadMappingsFromFile(path))
+    /* The number added, or -1: none for this platform is not a failure. */
+    if (SDL_AddGamepadMappingsFromFile(path) < 0)
     {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "ReiPan: failed to load controller mappings from %s: %s",

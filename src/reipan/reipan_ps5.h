@@ -50,9 +50,14 @@ void ReiPan_Ps5Notify(const char *fmt, ...) __attribute__((format(printf, 1, 2))
  * way in and resumes it on the way out; sleeps a little while paused. */
 int ReiPan_Ps5ShouldPause(void);
 
-/* Once a game frame, from WaitVBlank: holds the game while the home screen
- * has the controller, and writes the log out about once a second. */
+/* Once a game frame, from WaitVBlank: counts the frame, and holds the game
+ * while the home screen has the controller. */
 void ReiPan_Ps5FrameTick(void);
+
+/* From main, once the log is open: a thread that writes the log out once a
+ * second, with the console layer's own reports and, while anything looks
+ * wrong, how the controllers and the game's frames are doing. */
+void ReiPan_Ps5StartWatch(void);
 
 /* Walks through what SDL_GPU's Vulkan backend needs from RADV and logs each
  * answer, to say why SDL_GPU refused Vulkan. */

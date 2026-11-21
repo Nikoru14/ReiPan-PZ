@@ -58,15 +58,49 @@ platform_init(const char *title_name)
    say("splash dismissed: %d", sceSystemServiceHideSplashScreen());
 }
 
+/* ReiPan: what say() wrote, kept until the title's log takes it
+ * (platform_take_messages), so the pad's and the splash's reports reach a
+ * file the player can send, not only the console's klog. */
+static pthread_mutex_t say_lock = PTHREAD_MUTEX_INITIALIZER;
+static char say_kept[8192];
+static size_t say_kept_length;
+
 void
 say(const char *format, ...)
 {
+   char line[512];
    va_list args;
    va_start(args, format);
-   vfprintf(stderr, format, args);
+   vsnprintf(line, sizeof(line), format, args);
    va_end(args);
+   fputs(line, stderr);
    fputc('\n', stderr);
    fflush(stderr);
+
+   pthread_mutex_lock(&say_lock);
+   const size_t length = strlen(line);
+   if (say_kept_length + length + 2 <= sizeof(say_kept)) {
+      memcpy(say_kept + say_kept_length, line, length);
+      say_kept_length += length;
+      say_kept[say_kept_length++] = '\n';
+      say_kept[say_kept_length] = '\0';
+   }
+   pthread_mutex_unlock(&say_lock);
+}
+
+size_t
+platform_take_messages(char *out, size_t size)
+{
+   if (out == NULL || size == 0)
+      return 0;
+   pthread_mutex_lock(&say_lock);
+   size_t length = say_kept_length < size - 1 ? say_kept_length : size - 1;
+   memcpy(out, say_kept, length);
+   out[length] = '\0';
+   say_kept_length = 0;
+   say_kept[0] = '\0';
+   pthread_mutex_unlock(&say_lock);
+   return length;
 }
 
 double

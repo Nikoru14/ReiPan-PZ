@@ -994,8 +994,10 @@ static void IopLowPoolInit(void)
         }
     }
 
-    printf("iop: WARNING no free memory below 16MB for the EE->IOP heap --"
-           " movie audio will stall and the movie will show no picture\n");
+    /* No longer fatal: audiodec.c masks the play offset, not the address, so
+     * the ring plays from the main arena too. */
+    printf("iop: no free memory below 16MB for the EE->IOP heap; it uses the"
+           " main arena\n");
 }
 
 #if defined(__GNUC__)
@@ -1093,11 +1095,9 @@ void *ReiPan_IopAllocIopHeap(int size)
 
     IopUnlock();
 
-    /* Falling back to the main arena keeps the movie playing rather than
-     * hanging iopalloc(), but if the arena is high the 24-bit mask will stop
-     * the audio pump -- so say so instead of failing quietly. */
-    printf("iop: EE->IOP heap exhausted (%d bytes); falling back to the main"
-           " arena -- movie audio may stall\n", size);
+    /* The main arena serves it too: audiodec.c masks the play offset rather
+     * than the address, so the ring need not be low. */
+    printf("iop: EE->IOP heap from the main arena (%d bytes)\n", size);
 
     return ReiPan_IopAllocSysMemory(1, size, NULL);
 }

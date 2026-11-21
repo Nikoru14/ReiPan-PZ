@@ -638,7 +638,7 @@ void EnsureLog()
 #ifdef __PROSPERO__
         /* On the console each flush is a write to its disk on the game's
          * thread, and a room load logs dozens of lines: written out on
-         * warnings and once a second (ReiPan_Ps5FrameTick) instead.  A crash still has
+         * warnings and once a second (reipan_ps5.cpp's watch) instead.  A crash still has
          * crash.log (reipan_ps5.cpp). */
         logger->flush_on(spdlog::level::warn);
 #else

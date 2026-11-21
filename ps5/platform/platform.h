@@ -21,6 +21,11 @@ void platform_init(const char *title_name);
 /* One line to klog, flushed. */
 void say(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
+/* ReiPan: takes what say() has written since the last call (lines ending in
+ * '\n'), so the title can copy it into its own log. Returns its length. */
+#include <stddef.h>
+size_t platform_take_messages(char *out, size_t size);
+
 double now_seconds(void);
 
 /* The pad, in the console's button numbering. */

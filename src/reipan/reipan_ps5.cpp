@@ -11,13 +11,18 @@
 
 #include "reipan/io/reipan_log.h"
 #include "sdk/iop_voice.h"
+#include "reipan/os/reipan_thread.h"
 
 #include "platform.h"
 
+#include <SDL3/SDL_gamepad.h>
+#include <SDL3/SDL_joystick.h>
 #include <SDL3/SDL_log.h>
+#include <SDL3/SDL_stdinc.h>
 #include <SDL3/SDL_timer.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdarg>
 #include <cstddef>
@@ -37,6 +42,13 @@ extern "C" int sceKernelSendNotificationRequest(int device, void *request, size_
 extern "C" int sceKernelUsleep(unsigned int microseconds);
 extern "C" int sceSystemServiceLoadExec(const char *path, const char *const *argv);
 extern "C" void ReiPan_Ps5InstallCrashHandler(void);
+
+namespace
+{
+std::atomic<unsigned> g_frames{0}; /* game frames, from ReiPan_Ps5FrameTick */
+std::atomic<int> g_paused{0};      /* held for the home screen */
+void TakePlatformMessages();
+} // namespace
 
 /* ------------------------------------------------------------------ files */
 
@@ -238,6 +250,7 @@ extern "C" [[noreturn]] void ReiPan_Ps5Exit(int status)
         ReiPan_Ps5Notify("ReiPan has stopped (status %d). See %sreipan.log", status,
                          ReiPan_Ps5UserDir());
     }
+    TakePlatformMessages();
     SDL_Log("PS5: closing the title (status %d)", status);
     ReiPan_LogFlush();
     std::fflush(nullptr);
@@ -299,9 +312,13 @@ extern "C" int ReiPan_Ps5ShouldPause(void)
     if (shell_has_pad != paused)
     {
         paused = shell_has_pad;
+        g_paused.store(paused ? 1 : 0);
         ReiPan_VoiceSetPaused(paused ? 1 : 0);
-        SDL_Log("PS5: %s", paused ? "the system has the controller: game paused"
-                                  : "back in the game: resumed");
+        SDL_Log("PS5: %s (pad buttons 0x%08x)",
+                paused ? "the system has the controller: game paused"
+                       : "back in the game: resumed",
+                count > 0 && readings != nullptr ? (unsigned)readings[count - 1].buttons : 0u);
+        ReiPan_LogFlush();
     }
     if (paused)
     {
@@ -310,17 +327,122 @@ extern "C" int ReiPan_Ps5ShouldPause(void)
     return paused ? 1 : 0;
 }
 
+namespace
+{
+/* The console layer's own reports (ps5/platform: the pad, the splash) into
+ * this log, a line at a time. */
+void TakePlatformMessages()
+{
+    static char text[8192];
+    if (platform_take_messages(text, sizeof(text)) == 0)
+    {
+        return;
+    }
+    char *line = text;
+    while (*line != '\0')
+    {
+        char *end = std::strchr(line, '\n');
+        if (end != nullptr)
+        {
+            *end = '\0';
+        }
+        if (*line != '\0')
+        {
+            SDL_Log("PS5 platform: %s", line);
+        }
+        if (end == nullptr)
+        {
+            break;
+        }
+        line = end + 1;
+    }
+}
+
+/* What the controllers look like from each side -- the console's pad layer,
+ * SDL's joysticks and SDL's gamepads -- whenever it changes, and every few
+ * seconds while there is no gamepad at all. */
+void ReportPads(unsigned frames)
+{
+    static Uint64 next_at = 0;
+    static std::string last;
+    static unsigned last_frames = 0;
+    const Uint64 now = SDL_GetTicks();
+
+    int joysticks = 0;
+    int gamepads = 0;
+    if (SDL_JoystickID *ids = SDL_GetJoysticks(&joysticks))
+    {
+        SDL_free(ids);
+    }
+    if (SDL_JoystickID *ids = SDL_GetGamepads(&gamepads))
+    {
+        SDL_free(ids);
+    }
+    const struct pad_reading *readings = nullptr;
+    const int count = pad_player_readings(0, &readings);
+    char line[256];
+    std::snprintf(line, sizeof(line),
+                  "pad players 0x%x, player 0 %s; SDL joysticks %d, gamepads %d%s",
+                  (unsigned)pad_players(), count > 0 ? "reading" : "no readings",
+                  joysticks, gamepads, g_paused.load() ? "; PAUSED" : "");
+    const bool changed = last != line;
+    /* Every few seconds while something is wrong: no gamepad, or the game's
+     * frames not moving. */
+    const bool stuck = frames == last_frames;
+    last_frames = frames;
+    if (changed || ((gamepads == 0 || stuck) && now >= next_at))
+    {
+        SDL_Log("PS5: game frames %u%s", frames, stuck ? " (not advancing)" : "");
+        if (count > 0 && readings != nullptr)
+        {
+            const struct pad_reading &r = readings[count - 1];
+            SDL_Log("PS5: %s (buttons 0x%08x, connected %d)", line, (unsigned)r.buttons,
+                    (int)r.connected);
+        }
+        else
+        {
+            SDL_Log("PS5: %s", line);
+        }
+        last = line;
+        next_at = now + 3000;
+    }
+}
+
+/* The watch: copies the console layer's reports into the log, says how the
+ * controllers and the game's frames are doing, and writes the log out -- from
+ * a thread of its own, so it still does when the game's thread is stuck. */
+int SDLCALL WatchThread(void *)
+{
+    for (;;)
+    {
+        SDL_Delay(1000);
+        TakePlatformMessages();
+        ReportPads(g_frames.load(std::memory_order_relaxed));
+        ReiPan_LogFlush();
+    }
+    return 0;
+}
+} // namespace
+
+extern "C" void ReiPan_Ps5StartWatch(void)
+{
+    static bool started = false;
+    if (started)
+    {
+        return;
+    }
+    started = true;
+    if (SDL_Thread *thread = ReiPan_SdlThreadCreate(WatchThread, "ps5-watch", nullptr))
+    {
+        SDL_DetachThread(thread);
+    }
+}
+
 extern "C" void ReiPan_Ps5FrameTick(void)
 {
+    g_frames.fetch_add(1, std::memory_order_relaxed);
     while (ReiPan_Ps5ShouldPause())
     {
-    }
-    static Uint64 last_flush = 0;
-    const Uint64 now = SDL_GetTicks();
-    if (now - last_flush >= 1000)
-    {
-        last_flush = now;
-        ReiPan_LogFlush();
     }
 }
 

@@ -659,6 +659,7 @@ int main(void)
 #ifdef __PROSPERO__
     ReiPan_Ps5Notify("%s starting. Log: %sreipan.log", REIPAN_PS5_BUILD_LABEL,
                      ReiPan_Ps5UserDir());
+    ReiPan_Ps5StartWatch();
 #endif
     return ReiPan_HostMain(GameMain);
 }

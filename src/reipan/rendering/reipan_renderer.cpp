@@ -11376,6 +11376,10 @@ void UpdatePerformanceStats(bool presented)
                     p.renderer_record_ms, p.renderer_acquire_ms, p.renderer_acquire_max_ms,
                     p.renderer_submit_ms, p.gpu_idle_wait_ms, p.gpu_idle_waits,
                     stats.draw_count, stats.mesh_triangles_submitted);
+            unsigned split = 0, inline_count = 0;
+            ReiPan_GsUploadSplitStats(&split, &inline_count);
+            SDL_Log("PS5 perf: gs transfers over 5 s: %u in parallel bands, %u on the game thread",
+                    split, inline_count);
             ReiPan_Ps5ThreadReport("game");
         }
     }

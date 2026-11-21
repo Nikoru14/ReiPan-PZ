@@ -2,19 +2,19 @@ name: Windows build
 
 # A Release build of ReiPan for Windows (64-bit, MSVC), uploaded as an
 # artifact: the executable, the FFmpeg DLLs and resources/, ready to run with
-# your own game files.  Runs on pull requests into main and by hand (Actions >
-# Windows build > Run workflow, any branch).
+# your own game files.  Run it by hand (Actions > Windows build > Run
+# workflow, any branch); the Release workflow calls it too.
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
+  workflow_call:
+    inputs:
+      name:
+        description: 'Artifact (and folder) name'
+        type: string
+        required: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: windows-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
@@ -34,11 +34,13 @@ jobs:
       - name: Package
         id: package
         shell: pwsh
+        env:
+          NAME: ${{ inputs.name }}
         run: |
           $exe = Get-ChildItem -Path build/ReiPan -Recurse -Filter ReiPan.exe | Select-Object -First 1
           if (-not $exe) { throw "ReiPan.exe was not built" }
-          $short = "${{ github.sha }}".Substring(0, 8)
-          $name = "ReiPan-windows-$short"
+          $name = $env:NAME
+          if (-not $name) { $name = "ReiPan-windows-" + "${{ github.sha }}".Substring(0, 8) }
           $dest = "package/$name"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Copy-Item -Path "$($exe.DirectoryName)/*" -Destination $dest -Recurse

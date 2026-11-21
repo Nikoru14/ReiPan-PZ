@@ -71,6 +71,7 @@
 #include "ingame/item/prg/item.h"       // ItemGetCnt, ItemLost
 #include "ingame/cat/cat_ctrl.h"        // CatViewCtrl, CatPlyrHitCheck
 #include "graphics/effect/effect_sub.h" // Get2PDist3D, WorldToScreenPos
+#include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees in runs whose file is not settled yet (unassigned@ in tus.json).
@@ -1561,7 +1562,9 @@ void PlyrNormalCtrl(void)
         }
         else if ((bits & 2) == 0)
         {
-            if (opt->now.b11 != 0 && opt->now.b11 == 1)
+            // PC: the over-the-shoulder camera walks the player relative to
+            // itself whatever the control option says.
+            if (opt->now.b11 != 0 && opt->now.b11 == 1 && !ReiPan_OverShoulderOwnsMovement())
                 PlyrTankMoveCtrl();
             else
                 PlyrMoveDirCtrl();
@@ -3660,6 +3663,13 @@ void PlyrLookCtrl(void)
 
     step = 0.034906585f;
     GetStickRaw(4, &x, &y);
+    if (ReiPan_OverShoulderOwnsMovement())
+    {
+        // PC: the right stick turns the over-the-shoulder camera; read it as
+        // centred so the head eases back instead of looking along with it.
+        x = 0x80;
+        y = 0x80;
+    }
 
     target = 0.0f;
     if ((u_char)(y - 0x30) > 0xa0)

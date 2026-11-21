@@ -12,6 +12,7 @@
 #include "../debug/reipan_assists.h"
 #include "../debug/reipan_events.h"
 #include "../debug/reipan_warp.h"
+#include "../gameplay/reipan_over_shoulder.h"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -1148,12 +1149,18 @@ void PersistSettingsIfChanged()
         std::memcmp(&title_seen, &reipan_config.title, sizeof(title_seen)) != 0;
     title_seen = reipan_config.title;
 
+    static_assert(sizeof(ReiPan_ConfigCamera) == 11 * sizeof(int),
+                  "ReiPan_ConfigCamera gained padding; compare by field");
+
     ReiPan_ConfigRenderer before = reipan_config.renderer;
+    ReiPan_ConfigCamera   camera_before = reipan_config.camera;
     ReiPan_ConfigCapture();
 
     const Uint64 now = SDL_GetTicks();
     if (title_changed ||
-        std::memcmp(&before, &reipan_config.renderer, sizeof(before)) != 0)
+        std::memcmp(&before, &reipan_config.renderer, sizeof(before)) != 0 ||
+        std::memcmp(&camera_before, &reipan_config.camera,
+                    sizeof(camera_before)) != 0)
     {
         g_settings_dirty_since = now != 0 ? now : 1;
         return;
@@ -2148,6 +2155,115 @@ void DrawControlsSettingsMenu()
 }
 
 /*
+ * Settings > Camera: the over-the-shoulder camera and how it sits.  Sliders in
+ * a menu so a value can be judged while the game runs behind it; the settle-
+ * and-save above writes them out once they stop moving.
+ */
+void DrawCameraSettingsMenu()
+{
+    if (!ImGui::BeginMenu("Camera"))
+    {
+        return;
+    }
+
+    ReiPan_OverShoulderSettings s;
+    ReiPan_OverShoulderGetSettings(&s);
+    bool changed = false;
+
+    bool enabled = s.enabled != 0;
+    if (ImGui::MenuItem("Over-the-shoulder camera", nullptr, &enabled))
+    {
+        s.enabled = enabled ? 1 : 0;
+        changed = true;
+    }
+    ImGui::TextDisabled("Right stick turns it, R3 puts it behind her.");
+    ImGui::TextDisabled("Events, the viewfinder and ladders keep their own.");
+    ImGui::Separator();
+
+    bool left = s.side_left != 0;
+    if (ImGui::MenuItem("Left shoulder", nullptr, &left, enabled))
+    {
+        s.side_left = left ? 1 : 0;
+        changed = true;
+    }
+    bool collision = s.collision != 0;
+    if (ImGui::MenuItem("Collision", nullptr, &collision, enabled))
+    {
+        s.collision = collision ? 1 : 0;
+        changed = true;
+    }
+    bool follow = s.auto_follow != 0;
+    if (ImGui::MenuItem("Follow behind while walking", nullptr, &follow,
+                        enabled))
+    {
+        s.auto_follow = follow ? 1 : 0;
+        changed = true;
+    }
+    bool invert = s.invert_y != 0;
+    if (ImGui::MenuItem("Invert vertical look", nullptr, &invert, enabled))
+    {
+        s.invert_y = invert ? 1 : 0;
+        changed = true;
+    }
+    ImGui::Separator();
+
+    ImGui::BeginDisabled(!enabled);
+    ImGui::PushItemWidth(220.0f);
+    changed |= ImGui::SliderFloat("Distance", &s.distance, 6.0f, 30.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Height", &s.height, 6.0f, 20.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Shoulder offset", &s.side, 0.0f, 8.0f,
+                                  "%.1f");
+    changed |= ImGui::SliderFloat("Field of view", &s.fov_deg, 35.0f, 80.0f,
+                                  "%.0f deg");
+    changed |= ImGui::SliderFloat("Look speed", &s.sensitivity, 0.25f, 3.0f,
+                                  "%.2fx");
+    changed |= ImGui::SliderFloat("Smoothing", &s.smoothing, 0.0f, 0.8f,
+                                  "%.2f");
+    ImGui::PopItemWidth();
+    ImGui::EndDisabled();
+    if (ImGui::MenuItem("Reset camera settings", nullptr, false, enabled))
+    {
+        ReiPan_OverShoulderSettings d;
+        ReiPan_OverShoulderDefaults(&d);
+        d.enabled = s.enabled;
+        s = d;
+        changed = true;
+    }
+
+    if (changed)
+    {
+        ReiPan_OverShoulderSetSettings(&s);
+    }
+
+    /* What the camera is doing, for reporting how it behaves somewhere. */
+    ReiPan_OverShoulderDebug d;
+    ReiPan_OverShoulderGetDebug(&d);
+    ImGui::Separator();
+    if (!enabled)
+    {
+        ImGui::TextDisabled("Off: the game's fixed cameras.");
+    }
+    else if (!d.active)
+    {
+        ImGui::TextDisabled("Not on screen: the game's own camera has it.");
+    }
+    else
+    {
+        ImGui::TextDisabled("Yaw %.0f  pitch %.0f", d.yaw_deg, d.pitch_deg);
+        ImGui::TextDisabled("Back %.1f of %.1f  (scenery allows %.1f)", d.boom,
+                            d.requested, d.allowed);
+        ImGui::TextDisabled("Scenery: %d pieces, %d crossed, %d triangles",
+                            d.pieces, d.pieces_tested, d.triangles_tested);
+        if (d.hit)
+        {
+            ImGui::TextDisabled("Stopped by a piece %.1f x %.1f x %.1f",
+                                d.hit_size[0], d.hit_size[1], d.hit_size[2]);
+        }
+    }
+    ImGui::EndMenu();
+}
+
+/*
  * The Settings menu: the port's preferences, one submenu per subject.  Kept to
  * a single menu so the bar stays short -- Settings, Assists, Debug -- and a
  * player after any preference has one place to look for it.  What is left at
@@ -2164,6 +2280,7 @@ void DrawSettingsMenu()
     DrawDisplaySettingsMenu();
     DrawGraphicsSettingsMenu();
     DrawControlsSettingsMenu();
+    DrawCameraSettingsMenu();
     ReiPanUiTitle::MenuItem();
     ImGui::Separator();
 

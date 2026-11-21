@@ -26,6 +26,7 @@
 #include "reipan/gs/reipan_gs.h"
 #include "reipan/gs/reipan_gs_c.h"
 #include "reipan/reipan_profiler.h"
+#include "reipan/gameplay/reipan_ots_geometry.h"
 #include "reipan/rendering/reipan_renderer.h"
 
 #include <algorithm>
@@ -3197,6 +3198,9 @@ std::vector<float> s_cachedPostVUVNNormals;
  */
 void ReiPan_Graph3dInvalidateSkinCache(SGDFILEHEADER *owner)
 {
+    /* The camera collision's copy of this model's triangles, likewise. */
+    ReiPan_OtsGeomForgetOwner(owner);
+
     s_cachedPostVUVNSource = nullptr;
     s_cachedPostVUVNPositions.clear();
     s_cachedPostVUVNNormals.clear();
@@ -3392,6 +3396,53 @@ void ReiPan_Graph3dEndTim2Upload(void)
 void ReiPan_Graph3dNotifyTex0Rebase(void *source)
 {
     RetireTim2Source(source);
+}
+
+void ReiPan_Graph3dOtsRecordPresetMesh(SGDFILEHEADER *owner,
+                                       SGDPROCUNITHEADER *vuvn,
+                                       SGDPROCUNITHEADER *mesh,
+                                       const float *local_world)
+{
+    if (!ReiPan_OtsGeomCollecting() || owner == nullptr || vuvn == nullptr ||
+        mesh == nullptr || local_world == nullptr)
+    {
+        return;
+    }
+
+    if (!ReiPan_OtsGeomHasMesh(mesh, owner))
+    {
+        const int mesh_type = mesh->VUMeshDesc.ucMeshType;
+        const int num_mesh = mesh->VUMeshDesc.ucNumMesh;
+        if ((mesh_type != iMT_0 && mesh_type != iMT_2 && mesh_type != iMT_2F) ||
+            num_mesh <= 0 || num_mesh > 256)
+        {
+            return;
+        }
+
+        /* Its own scratch: this runs just before ReiPan_Graph3dDrawPresetMesh
+         * decodes into s_mesh_decode_scratch, and once per mesh, not per
+         * frame. */
+        static std::vector<float>        positions;
+        static std::vector<float>        normals;
+        static std::vector<float>        uv;
+        static std::vector<unsigned int> indices;
+        int                              vertex_count = 0;
+
+        if (!BuildPresetStaticGeometry(vuvn, mesh, mesh_type, num_mesh,
+                                       positions, normals, uv, indices,
+                                       &vertex_count))
+        {
+            /* Remember it as empty so it is not decoded again every frame. */
+            ReiPan_OtsGeomAddMesh(mesh, owner, positions.data(), 0,
+                                  indices.data(), 0);
+            return;
+        }
+        ReiPan_OtsGeomAddMesh(mesh, owner, positions.data(), vertex_count,
+                              indices.data(), (int)indices.size());
+    }
+
+    ReiPan_OtsGeomRecordDraw(mesh, owner,
+                             reinterpret_cast<const float (*)[4]>(local_world));
 }
 
 void ReiPan_Graph3dNoteTextureUpload(const void *tri2_head)

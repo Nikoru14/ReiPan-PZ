@@ -4,6 +4,7 @@
 #include "io/reipan_input.h"
 #include "io/reipan_paths.h"
 #include "rendering/reipan_renderer.h"
+#include "gameplay/reipan_over_shoulder.h"
 
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_stdinc.h>
@@ -137,6 +138,20 @@ ReiPan_Config reipan_config = {
     },
     /* .profiler_summary = */ 0,
     /* .profiler_fps_only = */ 0,
+    /* .camera = */ {
+        /* Off: the fixed angles are the game as it was made. */
+        /* .over_shoulder     = */ 0,
+        /* .side_left         = */ 0,
+        /* .collision         = */ 1,
+        /* .auto_follow       = */ 1,
+        /* .invert_y          = */ 0,
+        /* .distance          = */ 14.0f,
+        /* .height            = */ 13.0f,
+        /* .side              = */ 3.5f,
+        /* .fov               = */ 55.0f,
+        /* .sensitivity       = */ 1.0f,
+        /* .smoothing         = */ 0.3f,
+    },
 };
 
 namespace
@@ -1333,6 +1348,19 @@ static void ConfigLoadOnce(void)
     ReadInt("profiler", "summary", &reipan_config.profiler_summary);
     ReadInt("profiler", "fps_only", &reipan_config.profiler_fps_only);
 
+    ReiPan_ConfigCamera *cam = &reipan_config.camera;
+    ReadInt("over_shoulder_camera", "enabled", &cam->over_shoulder);
+    ReadInt("over_shoulder_camera", "left_shoulder", &cam->side_left);
+    ReadInt("over_shoulder_camera", "collision", &cam->collision);
+    ReadInt("over_shoulder_camera", "auto_follow", &cam->auto_follow);
+    ReadInt("over_shoulder_camera", "invert_y", &cam->invert_y);
+    ReadFloat("over_shoulder_camera", "distance", &cam->distance);
+    ReadFloat("over_shoulder_camera", "height", &cam->height);
+    ReadFloat("over_shoulder_camera", "side", &cam->side);
+    ReadFloat("over_shoulder_camera", "fov", &cam->fov);
+    ReadFloat("over_shoulder_camera", "sensitivity", &cam->sensitivity);
+    ReadFloat("over_shoulder_camera", "smoothing", &cam->smoothing);
+
     LoadInputBindings();
     ReadTitle(&reipan_config.title, true);
 
@@ -1356,6 +1384,55 @@ void ReiPan_ConfigLoad(void)
     static const bool once = (ConfigLoadOnce(), true);
     (void)once;
 }
+
+namespace
+{
+
+/* [over_shoulder_camera], with the reasons beside the keys as the rest of the
+ * file has them. */
+std::string BuildCameraSection()
+{
+    const ReiPan_ConfigCamera *c = &reipan_config.camera;
+    char text[2048];
+    std::snprintf(
+        text, sizeof(text),
+        "\n[over_shoulder_camera]\n"
+        "; A modern camera behind and beside the player instead of the\n"
+        ";   game's fixed angles. The right stick turns it, R3 puts it back\n"
+        ";   behind her, and the left stick walks the way it is pushed as\n"
+        ";   seen through it. Event cameras, the viewfinder, ladders and the\n"
+        ";   game's other special shots still play as they were made.\n"
+        ";   0 off, 1 on.\n"
+        "enabled = %d\n"
+        "; 1 over the left shoulder instead of the right.\n"
+        "left_shoulder = %d\n"
+        "; Pull in against the rooms and furniture as they are drawn: over a\n"
+        ";   low table, short of a wall or a closed door. 0 never pulls in.\n"
+        "collision = %d\n"
+        "; Drift back behind her while she walks and the right stick is idle.\n"
+        "auto_follow = %d\n"
+        "; Stick up looks down. On top of the game's own \"Point of view\"\n"
+        ";   option, which this camera follows too.\n"
+        "invert_y = %d\n"
+        "; World units; Rei is about seventeen tall.\n"
+        ";   distance 6..30 behind the shoulder, height 6..20 of the pivot\n"
+        ";   above her feet, side 0..8 off her shoulder.\n"
+        "distance = %.2f\n"
+        "height = %.2f\n"
+        "side = %.2f\n"
+        "; Vertical field of view in degrees, 35..80.\n"
+        "fov = %.1f\n"
+        "; Right-stick speed, 0.25..3.\n"
+        "sensitivity = %.2f\n"
+        "; How far the camera lags her movement, 0 (rigid)..0.8.\n"
+        "smoothing = %.2f\n",
+        c->over_shoulder, c->side_left, c->collision, c->auto_follow,
+        c->invert_y, (double)c->distance, (double)c->height, (double)c->side,
+        (double)c->fov, (double)c->sensitivity, (double)c->smoothing);
+    return text;
+}
+
+} // namespace
 
 int ReiPan_ConfigSave(void)
 {
@@ -1401,9 +1478,11 @@ int ReiPan_ConfigSave(void)
      * section is variable-length text rather than a fixed format string, and
      * regenerating it on the resize pass would be pure waste. */
     const std::string input_section = BuildInputSection();
+    const std::string camera_section = BuildCameraSection();
     const std::string title_section = TitleText();
 
-    auto format = [r, &input_section, &title_section](char *buf, size_t cap) {
+    auto format = [r, &input_section, &camera_section,
+                   &title_section](char *buf, size_t cap) {
         return SDL_snprintf(
         buf, cap,
         "; ReiPan settings.  Deleting this file restores the defaults.\n"
@@ -1581,6 +1660,7 @@ int ReiPan_ConfigSave(void)
         ";   line and into the picture the game did compose, which is the one\n"
         ";   value here that can spoil the original look.\n"
         "surround_scale = %.3f\n"
+        "%s"
         "\n[profiler]\nsummary = %d\nfps_only = %d\n"
         "\n%s\n%s",
         reipan_config.paths.data_folder,
@@ -1620,6 +1700,7 @@ int ReiPan_ConfigSave(void)
         (double)r->finder_mask_darken,
         (double)r->finder_mask_tint,
         (double)r->finder_mask_scale,
+        camera_section.c_str(),
         reipan_config.profiler_summary,
         reipan_config.profiler_fps_only,
         input_section.c_str(),
@@ -1774,6 +1855,21 @@ void ReiPan_ConfigApply(void)
     ReiPan_RendererSetGrade(r->grade_brightness, r->grade_contrast,
                             r->grade_gamma, r->grade_saturation);
     ReiPan_RendererSetWindowMode(r->window_mode);
+
+    const ReiPan_ConfigCamera  *c = &reipan_config.camera;
+    ReiPan_OverShoulderSettings ots;
+    ots.enabled = c->over_shoulder;
+    ots.side_left = c->side_left;
+    ots.collision = c->collision;
+    ots.auto_follow = c->auto_follow;
+    ots.invert_y = c->invert_y;
+    ots.distance = c->distance;
+    ots.height = c->height;
+    ots.side = c->side;
+    ots.fov_deg = c->fov;
+    ots.sensitivity = c->sensitivity;
+    ots.smoothing = c->smoothing;
+    ReiPan_OverShoulderSetSettings(&ots);
 }
 
 void ReiPan_ConfigCapture(void)
@@ -1808,6 +1904,21 @@ void ReiPan_ConfigCapture(void)
     r->resident_meshes = ReiPan_RendererGetResidentMeshes();
     r->resident_textures = ReiPan_RendererGetResidentTextures();
     r->window_mode = ReiPan_RendererGetWindowMode();
+
+    ReiPan_OverShoulderSettings ots;
+    ReiPan_OverShoulderGetSettings(&ots);
+    ReiPan_ConfigCamera *c = &reipan_config.camera;
+    c->over_shoulder = ots.enabled;
+    c->side_left = ots.side_left;
+    c->collision = ots.collision;
+    c->auto_follow = ots.auto_follow;
+    c->invert_y = ots.invert_y;
+    c->distance = ots.distance;
+    c->height = ots.height;
+    c->side = ots.side;
+    c->fov = ots.fov_deg;
+    c->sensitivity = ots.sensitivity;
+    c->smoothing = ots.smoothing;
 
     /* The windowed size, which the renderer latches while the window is not
      * fullscreen.  Reading the live window instead would store the desktop

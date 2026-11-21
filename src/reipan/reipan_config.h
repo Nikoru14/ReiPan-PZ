@@ -185,6 +185,27 @@ int ReiPan_ConfigTitleSceneText(int scene, char *buf, int size);
  * number of scenes taken; 0 changes nothing. */
 int ReiPan_ConfigTitlePaste(const char *text, int replace);
 
+/*
+ * The over-the-shoulder camera (gameplay/reipan_over_shoulder.h), section
+ * [over_shoulder_camera].  Distances in world units (Rei is about seventeen
+ * tall).  Every field is 4 bytes, so the overlay's settle-and-save compare can
+ * memcmp it.
+ */
+typedef struct ReiPan_ConfigCamera
+{
+    int   over_shoulder;     /* 0 the game's fixed cameras                  */
+    int   side_left;         /* the left shoulder instead of the right      */
+    int   collision;         /* pull in against the drawn scenery           */
+    int   auto_follow;       /* drift back behind her while she walks       */
+    int   invert_y;          /* on top of the game's own "Point of view"    */
+    float distance;
+    float height;
+    float side;
+    float fov;               /* degrees, vertical                           */
+    float sensitivity;
+    float smoothing;
+} ReiPan_ConfigCamera;
+
 typedef struct ReiPan_Config
 {
     /* Order matters: reipan_config.cpp's defaults are a positional
@@ -194,6 +215,7 @@ typedef struct ReiPan_Config
     ReiPan_ConfigTitle    title;
     int profiler_summary;
     int profiler_fps_only;
+    ReiPan_ConfigCamera   camera;
 } ReiPan_Config;
 
 extern ReiPan_Config reipan_config;

@@ -54,6 +54,7 @@
 #include "system/os/system.h"           // GetPALMode, GetFrameTimeScale
 #include "ingame/tattoo_event.h"         // TattooEvCameraMain
 #include "system/pad/pad.h"             // pad_wrk
+#include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees whose file is not settled yet.
@@ -151,6 +152,11 @@ int CameraMain(void)
     MAP_CAMERA_CTRL *pMcCtrl = &map_camera_ctrl;
     int              RectCamFlg = pMcCtrl->RectCamLastTime;
     int              type;
+    int              event_cam;
+
+    // PC: the over-the-shoulder camera puts the game's own camera back first,
+    // so the cameras below ease from their own shot.
+    ReiPan_OverShoulderBeginFrame();
 
     pMcCtrl->RectCamLastTime = 0;
 
@@ -200,12 +206,25 @@ int CameraMain(void)
             else if (TattooEvCameraMain(RectCamFlg) != 0)
             {
                 if (app_camera.mode != 0)
+                {
                     PlyrApproachCameraCtrl(RectCamFlg);
+                }
                 else
+                {
+                    event_cam = pMcCtrl->EventCamFlg;
                     MapCamNormalCameraCtrl(RectCamFlg);
+                    // PC: the ordinary room camera, not an event's: the shot
+                    // the over-the-shoulder camera may replace.
+                    if (event_cam == 0)
+                        ReiPan_OverShoulderNoteMapCamera();
+                }
             }
         }
     }
+
+    // PC: the over-the-shoulder camera, when it may replace this frame's shot;
+    // before the quake, which shakes whichever camera is on screen.
+    ReiPan_OverShoulderCameraCtrl();
 
     if (QuakeCameraCtrl.RequestFlg != 0)
         QuakeCameraMain();

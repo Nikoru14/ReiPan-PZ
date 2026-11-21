@@ -111,6 +111,7 @@
 #include "ingame/cat/cat_ctrl.h"                       // CatCtrl*, CatMdlCreate
 #include "graphics/graph2d/fade.h"
 #include "ingame/menu/menu_mouse.h"    // PC: the mouse in menus
+#include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees in runs whose file is not settled yet (unassigned@ in tus.json).
@@ -936,7 +937,9 @@ static void IngameSetDrawEnable(void)
     }
 
     en2 = en0 == 0;
-    if (ingame_wrk.plyr_wrk->flags & PLYR_FLG_800000)
+    // PC: the over-the-shoulder camera sees the room from anywhere, as the
+    // viewfinder does, so nothing a fixed angle hid may be left out.
+    if ((ingame_wrk.plyr_wrk->flags & PLYR_FLG_800000) || ReiPan_OverShoulderActive())
     {
         en0 = 1;
         en1 = 1;

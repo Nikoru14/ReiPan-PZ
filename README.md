@@ -35,6 +35,26 @@ Your choice is checked, then saved as `data_folder` under `[paths]` in
 `reipan.ini`. Change it later in **Settings → Game data folder…**. A folder holding those
 files beside the executable or above it is found without asking.
 
+## Over-the-shoulder camera
+
+An optional modern camera in place of the game's fixed angles: **Options →
+Camera → Camera view → Over the shoulder** (or the overlay's **Settings →
+Camera**). It follows the player from behind and beside her:
+
+- The right stick turns it, and R3 puts it back behind her. The left stick walks
+  the way it is pushed, as the camera sees it, whatever the Player controls
+  option says.
+- It collides with the rooms and furniture as they are drawn. It looks over a
+  low table, stops short of a wall or a closed door, and looks past ropes,
+  poles and candles.
+- Raising the Camera Obscura opens the viewfinder where the camera was looking.
+- Event cameras, the viewfinder, crawling, ladders and the damage and death
+  shots still play as the game made them. The camera picks up again afterwards.
+
+Distance, height, shoulder, field of view, look speed and smoothing are on the
+same page and saved under `[over_shoulder_camera]` in `reipan.ini`. The
+overlay's menu also shows what the collision is doing.
+
 ## PS2 save transfer
 
 Open **Settings → PS2 save transfer…** to transfer European, US or Japanese

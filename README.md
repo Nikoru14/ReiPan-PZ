@@ -1,6 +1,8 @@
 # ReiPan
 Fatal Frame 3 PC Port
 
+![logo](resources/reipan.png)
+
 ## Build
 
 Requires a C/C++ compiler, CMake, Make, Git and SDL3's system development

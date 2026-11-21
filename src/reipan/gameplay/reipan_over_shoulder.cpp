@@ -95,6 +95,20 @@ constexpr float kResumeMaxTurnDeg = 25.0f;
  * scene's shots does not flash it in. */
 constexpr int   kEventFreeTicks = 6;
 
+/* Guided: turn towards what an event camera's shot frames, unless it is
+ * already comfortably on screen or the shot only watches the player.  The
+ * right stick, the mouse or R3 take over at once.  MikuPan's tuning, at 30 Hz
+ * and in FF3's units. */
+constexpr int   kGuideTicks = 25;
+constexpr float kGuideRate = 0.26f;
+constexpr float kGuideDoneDeg = 1.5f;
+constexpr float kGuideMinDist = 11.0f;
+constexpr float kGuideVisibleYaw = 0.40f;    /* fraction of the field of view */
+constexpr float kGuideVisiblePitch = 0.30f;
+
+/* An event camera moving further than this in a tick has cut to a new shot. */
+constexpr float kEventCutDist = 20.0f;
+
 /* The pivot snaps rather than eases when the player moves this far in one
  * tick (a door into the next room, a warp). */
 constexpr float kPivotSnap = 14.0f;
@@ -128,6 +142,14 @@ int   g_blend_hide = 0;
 
 int   g_look_idle = 0;
 int   g_walk_free_ticks = 0;     // ticks the player has been free to walk
+
+/* Event shots, for the Scare camera's Guided. */
+int   g_event_prev = 0;          // the game ran an event camera last tick
+float g_event_last_pos[3];
+int   g_guide_pending = 0;       // a new shot not looked towards yet
+int   g_guide_ticks = 0;
+float g_guide_yaw = 0.0f;
+float g_guide_pitch = 0.0f;
 int   g_recenter = 0;
 
 /* The game's own camera, kept while this one is on screen, so its cameras
@@ -367,6 +389,7 @@ void Activate()
     }
     else
     {
+        g_guide_ticks = 0;
         g_yaw = plyr->rot[1];
         g_pitch = Deg(kDefaultPitchDeg);
         ClampPitch();
@@ -479,7 +502,8 @@ void UpdateRecenter(const PLYR_WRK *plyr)
 
 void AutoFollow(const PLYR_WRK *plyr)
 {
-    if (!g_set.auto_follow || g_recenter || g_look_idle < kAutoFollowDelay)
+    if (!g_set.auto_follow || g_recenter || g_guide_ticks > 0 ||
+        g_look_idle < kAutoFollowDelay)
     {
         return;
     }
@@ -498,6 +522,80 @@ void AutoFollow(const PLYR_WRK *plyr)
         return;
     }
     g_yaw = Wrap(g_yaw + delta * kAutoFollowRate);
+}
+
+/* ---- the Scare camera ------------------------------------------------------ */
+
+/* Turn towards `target`, once, unless it is on screen already or too close to
+ * the player to be anything but her. */
+void StartGuide(const float target[3])
+{
+    float from[3];
+    TargetPivot(from);
+    const float dx = target[0] - from[0];
+    const float dy = target[1] - from[1];
+    const float dz = target[2] - from[2];
+    const float horiz = sqrtf(dx * dx + dz * dz);
+    if (horiz < kGuideMinDist)
+    {
+        return;
+    }
+    /* Positive pitch looks up, and Y grows down. */
+    const float yaw = atan2f(dx, dz);
+    const float pitch = Clamp(atan2f(-dy, horiz), Deg(kPitchMinDeg), Deg(kPitchMaxDeg));
+    const float fov = Deg(g_set.fov_deg);
+    if (fabsf(Wrap(yaw - g_yaw)) < fov * kGuideVisibleYaw &&
+        fabsf(pitch - g_pitch) < fov * kGuideVisiblePitch)
+    {
+        return;
+    }
+    g_guide_yaw = yaw;
+    g_guide_pitch = pitch;
+    g_guide_ticks = kGuideTicks;
+    g_recenter = 0;
+    g_look_idle = 0;
+}
+
+void UpdateGuide(int player_looked)
+{
+    if (g_guide_ticks <= 0)
+    {
+        return;
+    }
+    if (player_looked || g_recenter)
+    {
+        g_guide_ticks = 0;
+        return;
+    }
+    const float dyaw = Wrap(g_guide_yaw - g_yaw);
+    const float dpitch = g_guide_pitch - g_pitch;
+    g_yaw = Wrap(g_yaw + dyaw * kGuideRate);
+    g_pitch += dpitch * kGuideRate;
+    ClampPitch();
+    g_guide_ticks--;
+    if (fabsf(dyaw) < Deg(kGuideDoneDeg) && fabsf(dpitch) < Deg(kGuideDoneDeg))
+    {
+        g_guide_ticks = 0;
+    }
+}
+
+/* Notes each new event shot -- an event camera starting, or cutting within
+ * the event -- for Guided to look towards once this camera holds the screen. */
+void WatchEventShot()
+{
+    if (g_game_camera != REIPAN_OTS_CAM_EVENT)
+    {
+        g_event_prev = 0;
+        g_guide_pending = 0;
+        return;
+    }
+    const float *pos = g_stock_cam.matCoord[3];
+    if (!g_event_prev || Dist(pos, g_event_last_pos) > kEventCutDist)
+    {
+        g_guide_pending = 1;
+    }
+    memcpy(g_event_last_pos, pos, sizeof(g_event_last_pos));
+    g_event_prev = 1;
 }
 
 /* ---- build --------------------------------------------------------------- */
@@ -667,7 +765,7 @@ void ReiPan_OverShoulderDefaults(ReiPan_OverShoulderSettings *out)
     out->collision = 1;
     out->auto_follow = 1;
     out->invert_y = 0;
-    out->event_cameras = 1;
+    out->scare_camera = REIPAN_OTS_SCARE_GUIDED;
     out->distance = 25.0f;
     out->height = 26.0f;
     out->side = 3.5f;
@@ -691,7 +789,10 @@ void ReiPan_OverShoulderSetSettings(const ReiPan_OverShoulderSettings *in)
     s.collision = s.collision ? 1 : 0;
     s.auto_follow = s.auto_follow ? 1 : 0;
     s.invert_y = s.invert_y ? 1 : 0;
-    s.event_cameras = s.event_cameras ? 1 : 0;
+    if (s.scare_camera < 0 || s.scare_camera >= REIPAN_OTS_SCARE_COUNT)
+    {
+        s.scare_camera = REIPAN_OTS_SCARE_GUIDED;
+    }
     s.distance = Clamp(isfinite(s.distance) ? s.distance : 25.0f, 10.0f, 45.0f);
     s.height = Clamp(isfinite(s.height) ? s.height : 26.0f, 10.0f, 32.0f);
     s.side = Clamp(isfinite(s.side) ? s.side : 3.5f, 0.0f, 12.0f);
@@ -794,6 +895,7 @@ void ReiPan_OverShoulderCameraCtrl(void)
 
     g_debug.active = 0;
     g_debug.over_event = 0;
+    g_debug.guiding = 0;
     g_debug.game_camera = g_game_camera;
     g_ctrl_tick = GetSysWrk()->count;
 
@@ -821,8 +923,9 @@ void ReiPan_OverShoulderCameraCtrl(void)
 
     /* The room's camera always; an event camera while she has been free to
      * walk for a moment, unless the player wants the game's shot. */
+    WatchEventShot();
     const int over_event = g_game_camera == REIPAN_OTS_CAM_EVENT &&
-                           g_set.event_cameras &&
+                           g_set.scare_camera != REIPAN_OTS_SCARE_ORIGINAL &&
                            g_walk_free_ticks >= kEventFreeTicks;
     if (!g_set.enabled || plyr == nullptr ||
         (g_game_camera != REIPAN_OTS_CAM_MAP && !over_event))
@@ -838,16 +941,33 @@ void ReiPan_OverShoulderCameraCtrl(void)
     }
     g_active = 1;
 
+    /* Guided: the event shot's subject, once a shot, from where the game's
+     * own camera was aiming this tick. */
+    if (over_event && g_guide_pending)
+    {
+        if (g_set.scare_camera == REIPAN_OTS_SCARE_GUIDED)
+        {
+            StartGuide(g_stock_cam.vTarget);
+        }
+        g_guide_pending = 0;
+    }
+
     if (PlayerInOrdinaryControl(plyr))
     {
-        UpdateLook();
+        const int looked = UpdateLook();
         UpdateRecenter(plyr);
+        UpdateGuide(looked);
         AutoFollow(plyr);
     }
-    else if (g_look_idle < 100000)
+    else
     {
-        g_look_idle++;
+        UpdateGuide(0);
+        if (g_look_idle < 100000)
+        {
+            g_look_idle++;
+        }
     }
+    g_debug.guiding = g_guide_ticks > 0;
 
     float p[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     float t[4] = {0.0f, 0.0f, 0.0f, 1.0f};

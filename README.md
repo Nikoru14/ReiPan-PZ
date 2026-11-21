@@ -57,8 +57,16 @@ Camera**). It follows the player from behind and beside her:
   low table, stops short of a wall or a closed door, and looks past ropes,
   poles and candles.
 - Raising the Camera Obscura opens the viewfinder where the camera was looking.
-- Event cameras, the viewfinder, crawling, ladders and the damage and death
-  shots still play as the game made them. The camera picks up again afterwards.
+- **Scare camera** decides what happens when the game cuts to an event camera
+  while you can still walk (a ghost appearing, something to look at, the
+  dream's graveyard path):
+  - **Guided** (the default) stays over the shoulder and turns once towards
+    what the event's shot frames. The right stick or mouse takes over at once.
+  - **Original** plays the game's own shot.
+  - **Off** stays over the shoulder and turns nowhere.
+- Events that take control away, the viewfinder, crawling, ladders and the
+  damage and death shots still play as the game made them. The camera picks up
+  again afterwards.
 
 Distance, height, shoulder, field of view, look speed and smoothing are on the
 same page and saved under `[over_shoulder_camera]` in `reipan.ini`. The

@@ -2273,12 +2273,24 @@ void DrawCameraSettingsMenu()
         s.collision = collision ? 1 : 0;
         changed = true;
     }
-    bool events = s.event_cameras != 0;
-    if (ImGui::MenuItem("Over event cameras while walking", nullptr, &events,
-                        enabled))
+    if (ImGui::BeginMenu("Scare camera", enabled))
     {
-        s.event_cameras = events ? 1 : 0;
-        changed = true;
+        static const char *const kScare[REIPAN_OTS_SCARE_COUNT] = {
+            "Guided - stay, turn towards the scare once",
+            "Original - the game's own shot",
+            "Off - stay, look nowhere",
+        };
+        for (int i = 0; i < REIPAN_OTS_SCARE_COUNT; i++)
+        {
+            if (ImGui::MenuItem(kScare[i], nullptr, s.scare_camera == i))
+            {
+                s.scare_camera = i;
+                changed = true;
+            }
+        }
+        ImGui::TextDisabled("When the game cuts to an event camera while");
+        ImGui::TextDisabled("she can still walk.");
+        ImGui::EndMenu();
     }
     bool follow = s.auto_follow != 0;
     if (ImGui::MenuItem("Follow behind while walking", nullptr, &follow,
@@ -2342,8 +2354,9 @@ void DrawCameraSettingsMenu()
     }
     else
     {
-        ImGui::TextDisabled("Yaw %.0f  pitch %.0f%s", d.yaw_deg, d.pitch_deg,
-                            d.over_event ? "  (over an event camera)" : "");
+        ImGui::TextDisabled("Yaw %.0f  pitch %.0f%s%s", d.yaw_deg, d.pitch_deg,
+                            d.over_event ? "  (over an event camera)" : "",
+                            d.guiding ? "  guiding" : "");
         ImGui::TextDisabled("Back %.1f of %.1f  (scenery allows %.1f)", d.boom,
                             d.requested, d.allowed);
         ImGui::TextDisabled("Scenery: %d pieces, %d crossed, %d triangles",

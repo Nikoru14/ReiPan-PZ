@@ -43,6 +43,29 @@ static int SDLCALL ThreadTrampoline(void *data)
 
 extern "C" {
 
+SDL_Thread *ReiPan_SdlThreadCreate(int (*fn)(void *), const char *name, void *data)
+{
+#ifdef __PROSPERO__
+    /* The console's default thread stack is small; the game's frames are not. */
+    const Sint64 stack_bytes = 2 * 1024 * 1024;
+#else
+    const Sint64 stack_bytes = 0; /* the system's default */
+#endif
+    SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER,
+                           (void *)fn);
+    SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, name);
+    SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, data);
+    if (stack_bytes > 0)
+    {
+        SDL_SetNumberProperty(props, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER,
+                              stack_bytes);
+    }
+    SDL_Thread *thread = SDL_CreateThreadWithProperties(props);
+    SDL_DestroyProperties(props);
+    return thread;
+}
+
 ReiPan_Thread *ReiPan_ThreadCreate(ReiPan_ThreadEntry entry, void *arg,
                                    const char *name)
 {
@@ -59,7 +82,7 @@ ReiPan_Thread *ReiPan_ThreadCreate(ReiPan_ThreadEntry entry, void *arg,
 
     t->entry = entry;
     t->arg   = arg;
-    t->sdl   = SDL_CreateThread(ThreadTrampoline, name != 0 ? name : "reipan-thread", t);
+    t->sdl   = ReiPan_SdlThreadCreate(ThreadTrampoline, name != 0 ? name : "reipan-thread", t);
     if (t->sdl == 0)
     {
         free(t);

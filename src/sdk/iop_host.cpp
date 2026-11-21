@@ -59,6 +59,7 @@ extern "C" __declspec(dllimport) size_t __stdcall VirtualQuery(
 
 #include <SDL3/SDL_mutex.h>
 #include <SDL3/SDL_thread.h>
+#include "reipan/os/reipan_thread.h"
 #include <SDL3/SDL_timer.h>
 
 #include <stdlib.h>
@@ -391,7 +392,7 @@ int ReiPan_IopStartThread(int thid, void *arg)
 
     IopLock();
     th->exited = 0;
-    th->thread = SDL_CreateThread(IopThreadMain, "iop", th);
+    th->thread = ReiPan_SdlThreadCreate(IopThreadMain, "iop", th);
     th->starting = 0;
     if (th->thread == NULL)
     {
@@ -719,7 +720,7 @@ int ReiPan_IopStartHardTimer(int timer_id)
         return -1;
 
     timer->running = 1;
-    timer->thread  = SDL_CreateThread(IopTimerMain, "iop-timer", timer);
+    timer->thread  = ReiPan_SdlThreadCreate(IopTimerMain, "iop-timer", timer);
 
     return timer->thread != NULL ? 0 : -1;
 }

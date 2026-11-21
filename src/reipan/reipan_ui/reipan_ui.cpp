@@ -3306,8 +3306,26 @@ void ProcessEvent(const SDL_Event *event)
         }
 
         ImGui_ImplSDL3_ProcessEvent(event);
-        if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
-            event->key.scancode == SDL_SCANCODE_F1)
+        bool toggle = event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
+                      event->key.scancode == SDL_SCANCODE_F1;
+#ifdef __PROSPERO__
+        /* The console has no keyboard: L3 with R3 is F1, as in MikuPan's PS5
+         * build (L3 with Options opens a jailbroken console's own menu). */
+        if (event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
+        {
+            SDL_Gamepad *pad = SDL_GetGamepadFromID(event->gbutton.which);
+            const Uint8 button = event->gbutton.button;
+            if (pad != nullptr &&
+                ((button == SDL_GAMEPAD_BUTTON_RIGHT_STICK &&
+                  SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_STICK)) ||
+                 (button == SDL_GAMEPAD_BUTTON_LEFT_STICK &&
+                  SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_STICK))))
+            {
+                toggle = true;
+            }
+        }
+#endif
+        if (toggle)
         {
             g_show_main_menu_bar = !g_show_main_menu_bar;
             /* Remembered for the next launch. */

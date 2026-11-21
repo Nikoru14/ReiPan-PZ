@@ -1,4 +1,5 @@
 #include "reipan_host.h"
+#include "reipan/reipan_ps5.h"
 
 #include <cstdlib>
 #include <deque>
@@ -170,6 +171,9 @@ int ReiPan_HostMain(int (*game_main)(void))
         if (quit_at != 0 && SDL_GetTicks() - quit_at > kQuitGraceMs)
         {
             SDL_Log("ReiPan host: the game did not exit after quit; exiting");
+#ifdef __PROSPERO__
+            ReiPan_Ps5Exit(0);
+#endif
             std::_Exit(0);
         }
     }

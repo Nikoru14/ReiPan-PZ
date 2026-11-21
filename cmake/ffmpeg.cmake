@@ -48,6 +48,7 @@ if(NOT WIN32)
             CONFIGURE_COMMAND ${BASH_EXECUTABLE} <SOURCE_DIR>/configure
                 --prefix=${FFMPEG_PREFIX}
                 --cc=${CMAKE_C_COMPILER}
+                ${REIPAN_FFMPEG_CROSS_ARGS}
                 --disable-shared --enable-static --enable-pic
                 --disable-programs --disable-doc --disable-debug
                 --disable-autodetect --disable-x86asm --disable-everything
@@ -62,12 +63,22 @@ if(NOT WIN32)
                 "${FFMPEG_PREFIX}/lib/libavutil.a"
                 "${FFMPEG_PREFIX}/lib/libswscale.a")
 
+    # The PS5 has no separate libm: the math functions come from the
+    # console's libSceLibcInternal, which the toolchain links into every
+    # program.
+    set(FFMPEG_SYSTEM_LIBS Threads::Threads)
+    if(NOT PS5)
+        list(APPEND FFMPEG_SYSTEM_LIBS m)
+    endif()
+    if(CMAKE_DL_LIBS)
+        list(APPEND FFMPEG_SYSTEM_LIBS ${CMAKE_DL_LIBS})
+    endif()
     foreach(ffmpeg_lib IN LISTS REIPAN_FFMPEG_LIBS)
         add_library(${ffmpeg_lib} STATIC IMPORTED)
         set_target_properties(${ffmpeg_lib} PROPERTIES
                 IMPORTED_LOCATION "${FFMPEG_PREFIX}/lib/lib${ffmpeg_lib}.a"
                 INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
-                INTERFACE_LINK_LIBRARIES "Threads::Threads;m;${CMAKE_DL_LIBS}")
+                INTERFACE_LINK_LIBRARIES "${FFMPEG_SYSTEM_LIBS}")
         add_dependencies(${ffmpeg_lib} ffmpeg_build)
     endforeach()
     set_property(TARGET avcodec swscale APPEND PROPERTY INTERFACE_LINK_LIBRARIES avutil)

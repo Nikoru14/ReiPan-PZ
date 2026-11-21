@@ -54,6 +54,9 @@ extern "C" {
 void ReiPan_VoiceInit(void);
 void ReiPan_VoiceShutdown(void);
 
+/* Holds (1) or resumes (0) the sound output as a whole. */
+void ReiPan_VoiceSetPaused(int paused);
+
 /* Key on / off, one bit per voice, exactly as SD_S_KON / SD_S_KOFF carry it. */
 void ReiPan_VoiceKeyOn(int core, u_int mask);
 void ReiPan_VoiceKeyOff(int core, u_int mask);

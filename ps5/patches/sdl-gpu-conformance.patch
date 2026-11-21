@@ -1,0 +1,15 @@
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -12176,6 +12176,12 @@
+      * example of a non-conformant driver that's built by default.
+      * -flibit
+      */
++#ifdef __PROSPERO__
++    /* PlayStation 5: RADV reports conformance version 0.0.0.0 until a CTS
++     * release has passed on the console (PS5_Vulkan's CTS_GAPS.md), and it is
++     * the only driver there. */
++    isConformant = true;
++#endif
+     if (!isConformant) {
+         return 0;
+     }

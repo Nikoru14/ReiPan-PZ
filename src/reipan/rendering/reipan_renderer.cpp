@@ -1,6 +1,7 @@
 #include "reipan_renderer.h"
 #include "reipan_font_textures.h"
 #include "reipan/os/reipan_host.h"
+#include "reipan/reipan_ps5.h"
 
 #include "../gs/reipan_gs.h"
 #include "../io/reipan_file.h"
@@ -4088,6 +4089,10 @@ void PumpEvents()
 
         if (event.type == SDL_EVENT_QUIT)
         {
+#ifdef __PROSPERO__
+            /* (a title that calls exit() gets a crash dialog) */
+            ReiPan_Ps5Exit(0);
+#endif
             std::exit(0);
         }
 
@@ -9547,6 +9552,10 @@ void CreateWindowAndDevice(void *ok)
     if (g_device == nullptr)
     {
         LogSdlError("SDL_CreateGPUDevice");
+#ifdef __PROSPERO__
+        ReiPan_Ps5Notify("ReiPan could not start the GPU: %s", SDL_GetError());
+        ReiPan_Ps5VulkanReport();
+#endif
         return;
     }
 

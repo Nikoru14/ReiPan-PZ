@@ -558,7 +558,11 @@ void WriteBanner(spdlog::level::level_enum level, bool rom_enabled)
     }
     else
     {
+#ifdef __PROSPERO__
+        g_port->info("log file  : {}  ({} MB x {} kept, flushed each second)",
+#else
         g_port->info("log file  : {}  ({} MB x {} kept, flushed per record)",
+#endif
                      g_path, kRotateBytes / (1024u * 1024u), kRotateFiles + 1u);
     }
     g_port->info("log level : {}  (rom stream {})",
@@ -631,8 +635,16 @@ void EnsureLog()
          * is the exception it does not need: `off` means off. */
         logger->set_level(level == spdlog::level::off ? spdlog::level::off
                                                       : spdlog::level::trace);
+#ifdef __PROSPERO__
+        /* On the console each flush is a write to its disk on the game's
+         * thread, and a room load logs dozens of lines: written out on
+         * warnings and once a second (ReiPan_Ps5FrameTick) instead.  A crash still has
+         * crash.log (reipan_ps5.cpp). */
+        logger->flush_on(spdlog::level::warn);
+#else
         /* Every record, straight through to the OS.  See the header. */
         logger->flush_on(spdlog::level::trace);
+#endif
         /* A logging failure reports itself once and is then ignored; it must
          * never propagate into the game as an exception. */
         logger->set_error_handler([](const std::string &message) {

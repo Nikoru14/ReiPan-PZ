@@ -37,6 +37,12 @@
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_stdinc.h>
 
+#ifdef __PROSPERO__
+#include "../reipan_ps5.h"
+#include <dirent.h>
+#endif
+
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -65,6 +71,9 @@ bool IsSlash(char ch)
 /* Existence through SDL, so an APK asset and a real file both answer. */
 bool FileExists(const std::string &path)
 {
+#ifdef __PROSPERO__
+    return ReiPan_Ps5IsFile(path.c_str()) != 0;
+#endif
     SDL_IOStream *io = SDL_IOFromFile(path.c_str(), "rb");
     if (io == nullptr)
     {
@@ -76,6 +85,11 @@ bool FileExists(const std::string &path)
 
 bool DirExists(const std::string &path)
 {
+#ifdef __PROSPERO__
+    char spelt[1024];
+    return ReiPan_Ps5ResolveCase(path.c_str(), spelt, sizeof(spelt)) != 0 &&
+           !ReiPan_Ps5IsFile(spelt);
+#endif
     std::error_code ec;
     return std::filesystem::is_directory(path, ec);
 }
@@ -84,6 +98,10 @@ bool DirExists(const std::string &path)
  * them as UTF-8 where a narrow std::filesystem path would not. */
 bool IsFile(const std::string &path)
 {
+#ifdef __PROSPERO__
+    /* (a title's stat is not relied on: the file is opened) */
+    return ReiPan_Ps5IsFile(path.c_str()) != 0;
+#endif
     SDL_PathInfo info;
     return SDL_GetPathInfo(path.c_str(), &info) && info.type == SDL_PATHTYPE_FILE;
 }
@@ -232,6 +250,14 @@ std::string ParentOf(const std::string &path)
  */
 void AppendSearchRoots(std::vector<std::string> *out)
 {
+#ifdef __PROSPERO__
+    /* A title has no working directory (a relative path is refused) and its
+     * executable is in /app0: the game's files go in the user folder,
+     * /data/ReiPan, or, packaged with the title, in /app0. */
+    out->push_back(ReiPan_Ps5UserDir());
+    out->push_back(ReiPan_Ps5AppDir());
+    return;
+#endif
     const char *base = SDL_GetBasePath();
 
     if (base != nullptr && base[0] != '\0' && !IsAssetUrl(base))
@@ -265,6 +291,10 @@ void AppendSearchRoots(std::vector<std::string> *out)
  */
 void MigrateLegacyUserData(const std::string &user_dir)
 {
+#ifdef __PROSPERO__
+    (void)user_dir;
+    return; /* (nothing was ever beside the title's executable) */
+#endif
     const char *base = SDL_GetBasePath();
 
     if (base == nullptr || base[0] == '\0' || IsAssetUrl(base))
@@ -339,7 +369,11 @@ std::string ComputeUserDir()
     /* A scripted run keeps its saves and settings apart from the player's. */
     const char *override_dir = std::getenv("REIPAN_USER_DIR");
     const bool  overridden = override_dir != nullptr && override_dir[0] != '\0';
+#ifdef __PROSPERO__
+    char *pref = overridden ? nullptr : SDL_strdup(ReiPan_Ps5UserDir());
+#else
     char *pref = overridden ? nullptr : SDL_GetPrefPath("Mikompilation", "ReiPan");
+#endif
     if (overridden)
     {
         dir = WithTrailingSlash(override_dir);
@@ -394,6 +428,18 @@ std::string ExistingIsoSpelling(const std::string &path)
     {
         return versioned;
     }
+#ifdef __PROSPERO__
+    /* The console's /data is case-sensitive, and a disc's files are often
+     * copied as img_bd.bin. */
+    char spelt[1024];
+    for (const std::string &name : {path, versioned})
+    {
+        if (ReiPan_Ps5ResolveCase(name.c_str(), spelt, sizeof(spelt)) && FileExists(spelt))
+        {
+            return spelt;
+        }
+    }
+#endif
     return std::string();
 }
 
@@ -576,6 +622,56 @@ bool HoldsGameFiles(const std::string &where)
     return LooksLikeDataRoot(where);
 }
 
+#ifdef __PROSPERO__
+/*
+ * The console has no file dialog, so the game's files are looked for where the
+ * player was told to put them: a disc image (any .iso) or IMG_BD.BIN with
+ * ZERO3.FHD in the user folder, /data/ReiPan, or the title folder.  Returns the
+ * file to choose -- the image, or IMG_BD.BIN -- or an empty string.
+ */
+std::string Ps5FindGameFile()
+{
+    std::vector<std::string> roots;
+    AppendSearchRoots(&roots);
+    for (const std::string &root : roots)
+    {
+        const std::string archive = ExistingIsoSpelling(root + "IMG_BD.BIN");
+        if (!archive.empty() && FindGameBeside(archive, root) == REIPAN_GAMEFILE_OK)
+        {
+            return archive;
+        }
+
+        DIR *dir = opendir(root.c_str());
+        if (dir == nullptr)
+        {
+            continue;
+        }
+        std::vector<std::string> images;
+        while (struct dirent *entry = readdir(dir))
+        {
+            const size_t length = std::strlen(entry->d_name);
+            if (length > 4 && SDL_strcasecmp(entry->d_name + length - 4, ".iso") == 0)
+            {
+                images.push_back(root + entry->d_name);
+            }
+        }
+        closedir(dir);
+        std::sort(images.begin(), images.end());
+        for (const std::string &image : images)
+        {
+            const int found = FindGameInImage(image, nullptr);
+            SDL_Log("ReiPan paths: %s: %s", image.c_str(),
+                    found == REIPAN_GAMEFILE_OK ? "the game" : "not this game");
+            if (found == REIPAN_GAMEFILE_OK)
+            {
+                return image;
+            }
+        }
+    }
+    return std::string();
+}
+#endif
+
 std::string DiscoverDataDir()
 {
     std::vector<std::string> candidates;
@@ -753,6 +849,13 @@ std::string ComputeAssetsDir()
 {
     std::string dir;
 
+#ifdef __PROSPERO__
+    /* The title folder, read-only. */
+    dir = ReiPan_Ps5AppDir();
+    SDL_Log("ReiPan paths: assets = %s", dir.c_str());
+    return dir;
+#endif
+
     const char *base = SDL_GetBasePath();
 
     /* Android: the resources are in the APK and SDL_IOFromFile reads them from
@@ -843,9 +946,26 @@ int ReiPan_PathLooksLikeDataDir(const char *dir)
     return HoldsGameFiles(dir) ? 1 : 0;
 }
 
+
 int ReiPan_PathHasGameFiles(void)
 {
     ReiPan_ConfigLoad();
+
+#ifdef __PROSPERO__
+    /* What is in /data/ReiPan now wins over a setting that no longer holds
+     * the game: the player cannot choose a file on the console. */
+    {
+        const char *configured = reipan_config.paths.data_folder;
+        if (configured[0] == '\0' || !HoldsGameFiles(configured))
+        {
+            const std::string found = Ps5FindGameFile();
+            if (!found.empty() && ReiPan_PathUseGameFile(found.c_str()) == REIPAN_GAMEFILE_OK)
+            {
+                return 1;
+            }
+        }
+    }
+#endif
 
     const char *env = std::getenv("REIPAN_DATA_DIR");
     if (env != nullptr && env[0] != '\0')

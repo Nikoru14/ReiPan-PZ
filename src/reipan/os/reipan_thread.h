@@ -22,6 +22,13 @@ ReiPan_Thread *ReiPan_ThreadCreate(ReiPan_ThreadEntry entry, void *arg,
                                    const char *name);
 void           ReiPan_ThreadDetach(ReiPan_Thread *t);
 
+// SDL_CreateThread for the port's own SDL threads (the IOP, its timers, the
+// mixer), with a stack sized for the game rather than the system's default:
+// the PS5's is far smaller than a desktop's.
+struct SDL_Thread;
+struct SDL_Thread *ReiPan_SdlThreadCreate(int (*fn)(void *), const char *name,
+                                          void *data);
+
 // Counting semaphores.
 ReiPan_Sema *ReiPan_SemaCreate(int initial_count);
 void         ReiPan_SemaDestroy(ReiPan_Sema *s);

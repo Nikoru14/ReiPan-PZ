@@ -7,6 +7,7 @@
 #include "../os/reipan_host.h"
 #include "../reipan_config.h"
 #include "../rendering/reipan_renderer.h"
+#include "../reipan_ps5.h"
 
 #include <RmlUi/Core.h>
 
@@ -222,6 +223,26 @@ void Select(int action)
     }
 }
 
+#ifdef __PROSPERO__
+/* The console has no file dialog: the game's files are looked for again where
+ * the screen says to put them (reipan_paths.cpp). */
+void LookAgain()
+{
+    if (ReiPan_PathHasGameFiles() == 0)
+    {
+        ShowStatus("problem",
+                   "Nothing there yet. Copy your .iso, or IMG_BD.BIN with "
+                   "ZERO3.FHD, into this folder and look again:",
+                   ReiPan_Ps5UserDir());
+        return;
+    }
+    g_screen.stage = Stage::Found;
+    g_screen.found_at = SDL_GetTicks();
+    g_screen.frame->SetClass("found", true);
+    ShowStatus("found", "Found it. Starting the game...", BaseName(reipan_config.paths.data_folder));
+}
+#endif
+
 void Activate(int action)
 {
     if (action == kActionQuit)
@@ -230,7 +251,11 @@ void Activate(int action)
     }
     else
     {
+#ifdef __PROSPERO__
+        LookAgain();
+#else
         OpenDialog();
+#endif
     }
 }
 
@@ -336,7 +361,11 @@ void RefreshPrompts()
 void RefreshChoosing()
 {
     const bool choosing = g_pick.open.load();
+#ifdef __PROSPERO__
+    const std::string label = "Look Again";
+#else
     const std::string label = choosing ? "Choosing..." : "Choose Game File";
+#endif
     if (label != g_screen.shown_choose)
     {
         g_screen.shown_choose = label;
@@ -387,9 +416,21 @@ bool Open()
     }
     document->Show(Rml::ModalFlag::Modal, Rml::FocusFlag::Document);
 
+#ifdef __PROSPERO__
+    if (Rml::Element *lead = document->GetElementById("lead"))
+    {
+        lead->SetInnerRML("ReiPan does not include the game. Copy your own copy of "
+                          "Fatal Frame III: The Tormented to the console, then "
+                          "choose Look Again.");
+    }
+    ShowStatus("", "Put the .iso, or IMG_BD.BIN with ZERO3.FHD, in this folder:",
+               ReiPan_Ps5UserDir());
+    if (false)
+#else
     /* A setting that has stopped working is worth saying so, or the screen
      * reads as if the player had never chosen. */
     if (reipan_config.paths.data_folder[0] != '\0')
+#endif
     {
         ShowStatus("", "The game is no longer where the settings say it was:",
                    reipan_config.paths.data_folder);

@@ -1,0 +1,37 @@
+--- a/src/timer/unix/SDL_systimer.c
++++ b/src/timer/unix/SDL_systimer.c
+@@ -84,6 +84,26 @@
+     checked_monotonic_time = true;
+ }
+ 
++#ifdef __PROSPERO__
++/* PlayStation 5: clock_gettime is a system call there, microseconds each,
++ * and games read the counter around every draw. The CPU's invariant time
++ * stamp counter is one instruction; libkernel reports its frequency. */
++extern Uint64 sceKernelGetTscFrequency(void);
++
++Uint64 SDL_GetPerformanceCounter(void)
++{
++    return (Uint64)__builtin_ia32_rdtsc();
++}
++
++Uint64 SDL_GetPerformanceFrequency(void)
++{
++    static Uint64 frequency = 0;
++    if (frequency == 0) {
++        frequency = sceKernelGetTscFrequency();
++    }
++    return frequency;
++}
++#else
+ Uint64 SDL_GetPerformanceCounter(void)
+ {
+     Uint64 ticks;
+@@ -136,6 +156,7 @@
+ 
+     return SDL_US_PER_SECOND;
+ }
++#endif // __PROSPERO__
+ 
+ void SDL_SYS_DelayNS(Uint64 ns)
+ {

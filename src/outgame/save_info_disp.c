@@ -38,14 +38,20 @@ void SaveInfoDrawThumb(void *tim2, int x, int y, u_char alpha, int pri)
     if (tim2 == nullptr)
         return;
 
+    // PC: TEX0 is 64 bits, and so must every mask and bit here be.  These were
+    // written with UL constants, which are 32 bits on Windows (LLP64): 1UL <<
+    // 34 and 0x3fffUL << 37 shifted past the type, and ~0x3fffUL and ~0UL >> 3
+    // cleared the whole upper word -- CBP, TCC and CLD among it -- so the
+    // thumbnail was sampled through a wrong CLUT setup and came out striped.
+    // Only Linux's 64-bit unsigned long ever got it right.
     pic = Tim2GetFirstPicture(tim2);
     tex0 = pic->GsTex0;
-    tex0 = (tex0 & ~0x3fffUL) | SAVE_INFO_THUMB_TBP;                        // TBP0
-    tex0 = (tex0 & ~(0x3fffUL << 37)) | ((u_long)SAVE_INFO_THUMB_CBP << 37);  // CBP
-    tw = 1 << (int)((tex0 >> 26) & 0xf);                                    // TW
-    tex0 = (tex0 & ~(0x3fUL << 14)) | ((u_long)((tw / 64) & 0x3f) << 14);  // TBW
-    tex0 |= 1UL << 34;                                                      // TCC
-    tex0 = (tex0 & (~0UL >> 3)) | (1UL << 61);                              // CLD
+    tex0 = (tex0 & ~(u_long)0x3fff) | SAVE_INFO_THUMB_TBP;                        // TBP0
+    tex0 = (tex0 & ~((u_long)0x3fff << 37)) | ((u_long)SAVE_INFO_THUMB_CBP << 37);  // CBP
+    tw = 1 << (int)((tex0 >> 26) & 0xf);                                          // TW
+    tex0 = (tex0 & ~((u_long)0x3f << 14)) | ((u_long)((tw / 64) & 0x3f) << 14);  // TBW
+    tex0 |= (u_long)1 << 34;                                                      // TCC
+    tex0 = (tex0 & (~(u_long)0 >> 3)) | ((u_long)1 << 61);                        // CLD
     pic->GsTex0 = tex0;
     MakeTim2SendPacket_3Dpkt(tim2, 0, -1, -1);
 

@@ -1149,7 +1149,7 @@ void PersistSettingsIfChanged()
         std::memcmp(&title_seen, &reipan_config.title, sizeof(title_seen)) != 0;
     title_seen = reipan_config.title;
 
-    static_assert(sizeof(ReiPan_ConfigCamera) == 11 * sizeof(int),
+    static_assert(sizeof(ReiPan_ConfigCamera) == 12 * sizeof(int),
                   "ReiPan_ConfigCamera gained padding; compare by field");
 
     ReiPan_ConfigRenderer before = reipan_config.renderer;
@@ -2192,6 +2192,13 @@ void DrawCameraSettingsMenu()
         s.collision = collision ? 1 : 0;
         changed = true;
     }
+    bool events = s.event_cameras != 0;
+    if (ImGui::MenuItem("Over event cameras while walking", nullptr, &events,
+                        enabled))
+    {
+        s.event_cameras = events ? 1 : 0;
+        changed = true;
+    }
     bool follow = s.auto_follow != 0;
     if (ImGui::MenuItem("Follow behind while walking", nullptr, &follow,
                         enabled))
@@ -2254,7 +2261,8 @@ void DrawCameraSettingsMenu()
     }
     else
     {
-        ImGui::TextDisabled("Yaw %.0f  pitch %.0f", d.yaw_deg, d.pitch_deg);
+        ImGui::TextDisabled("Yaw %.0f  pitch %.0f%s", d.yaw_deg, d.pitch_deg,
+                            d.over_event ? "  (over an event camera)" : "");
         ImGui::TextDisabled("Back %.1f of %.1f  (scenery allows %.1f)", d.boom,
                             d.requested, d.allowed);
         ImGui::TextDisabled("Scenery: %d pieces, %d crossed, %d triangles",

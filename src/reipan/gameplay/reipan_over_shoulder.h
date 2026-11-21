@@ -32,6 +32,7 @@ typedef struct ReiPan_OverShoulderSettings
     int   collision;        /* pull in against the drawn scenery */
     int   auto_follow;      /* drift back behind the player while she walks */
     int   invert_y;         /* stick up looks down */
+    int   event_cameras;    /* take over a scripted camera while she can walk */
     float distance;         /* how far behind the shoulder, 10..45 */
     float height;           /* pivot height above the feet, 10..32 */
     float side;             /* shoulder offset, 0..12 */
@@ -54,9 +55,10 @@ void ReiPan_OverShoulderSetEnabled(int enabled);
  * that ease from where they were keep easing from their own shot. */
 void ReiPan_OverShoulderBeginFrame(void);
 
-/* Which camera CameraMain() ran this frame.  Only REIPAN_OTS_CAM_MAP, the
- * ordinary room camera, is a shot this camera may replace; the rest are
- * named for the readout and the log. */
+/* Which camera CameraMain() ran this frame.  REIPAN_OTS_CAM_MAP, the ordinary
+ * room camera, is a shot this camera replaces, and REIPAN_OTS_CAM_EVENT too
+ * while the player can walk (settings.event_cameras); the rest are named for
+ * the readout and the log. */
 enum
 {
     REIPAN_OTS_CAM_NONE = 0,    /* CameraMain() did not pick one */
@@ -107,6 +109,7 @@ int ReiPan_OverShoulderHidePlayer(void);
 typedef struct ReiPan_OverShoulderDebug
 {
     int   active;
+    int   over_event;       /* on screen in place of an event camera */
     int   game_camera;      /* REIPAN_OTS_CAM_*: what CameraMain() ran */
     int   ticks_since;      /* game ticks since CameraMain() last ran */
     float yaw_deg;

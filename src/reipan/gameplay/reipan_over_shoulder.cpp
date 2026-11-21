@@ -14,6 +14,7 @@
 #include "ingame/ingame_wrk.h"                  // ingame_wrk.plyr_wrk
 #include "ingame/plyr/player.h"                 // PLYR_WRK, PLYR_MODE_*, PLYR_FLG_*
 #include "ingame/plyr/unit_ctl.h"               // GetStickRaw
+#include "ingame/story_menu.h"                   // IsLockTblOn
 #include "outgame/option.h"                     // GetOptionWrk: b09, the look stick's y
 #include "reipan/gameplay/reipan_ots_geometry.h"
 #include "system/os/system.h"                    // GetSysWrk: the game tick
@@ -88,6 +89,11 @@ constexpr float kRecenterRate = 0.39f;
 constexpr float kResumeMaxMove = 11.0f;
 constexpr float kResumeMaxTurnDeg = 25.0f;
 
+/* Ticks the player must have been free to walk before this camera takes
+ * over an event camera, so a lock that lifts for a tick between two of a
+ * scene's shots does not flash it in. */
+constexpr int   kEventFreeTicks = 6;
+
 /* The pivot snaps rather than eases when the player moves this far in one
  * tick (a door into the next room, a warp). */
 constexpr float kPivotSnap = 14.0f;
@@ -120,6 +126,7 @@ int   g_hide_model = 0;
 int   g_blend_hide = 0;
 
 int   g_look_idle = 0;
+int   g_walk_free_ticks = 0;     // ticks the player has been free to walk
 int   g_recenter = 0;
 
 /* The game's own camera, kept while this one is on screen, so its cameras
@@ -231,6 +238,14 @@ int PlayerInOrdinaryControl(const PLYR_WRK *plyr)
         return 0;
     }
     return 1;
+}
+
+/* She can walk: ordinary control, and neither the walking stick (lock 3) nor
+ * the game's input (lock 4) locked by a script. */
+int PlayerCanWalk(const PLYR_WRK *plyr)
+{
+    return PlayerInOrdinaryControl(plyr) && !IsLockTblOn(3) && !IsLockTblOn(4) &&
+           !IsPadLocked(0);
 }
 
 /* ---- camera geometry ----------------------------------------------------- */
@@ -625,6 +640,7 @@ void ReiPan_OverShoulderDefaults(ReiPan_OverShoulderSettings *out)
     out->collision = 1;
     out->auto_follow = 1;
     out->invert_y = 0;
+    out->event_cameras = 1;
     out->distance = 25.0f;
     out->height = 26.0f;
     out->side = 3.5f;
@@ -648,6 +664,7 @@ void ReiPan_OverShoulderSetSettings(const ReiPan_OverShoulderSettings *in)
     s.collision = s.collision ? 1 : 0;
     s.auto_follow = s.auto_follow ? 1 : 0;
     s.invert_y = s.invert_y ? 1 : 0;
+    s.event_cameras = s.event_cameras ? 1 : 0;
     s.distance = Clamp(isfinite(s.distance) ? s.distance : 25.0f, 10.0f, 45.0f);
     s.height = Clamp(isfinite(s.height) ? s.height : 26.0f, 10.0f, 32.0f);
     s.side = Clamp(isfinite(s.side) ? s.side : 3.5f, 0.0f, 12.0f);
@@ -749,6 +766,7 @@ void ReiPan_OverShoulderCameraCtrl(void)
     g_stock_valid = 1;
 
     g_debug.active = 0;
+    g_debug.over_event = 0;
     g_debug.game_camera = g_game_camera;
     g_ctrl_tick = GetSysWrk()->count;
 
@@ -762,11 +780,30 @@ void ReiPan_OverShoulderCameraCtrl(void)
         g_logged_camera = g_game_camera;
     }
 
-    if (!g_set.enabled || g_game_camera != REIPAN_OTS_CAM_MAP || plyr == nullptr)
+    if (plyr != nullptr && PlayerCanWalk(plyr))
+    {
+        if (g_walk_free_ticks < 100000)
+        {
+            g_walk_free_ticks++;
+        }
+    }
+    else
+    {
+        g_walk_free_ticks = 0;
+    }
+
+    /* The room's camera always; an event camera while she has been free to
+     * walk for a moment, unless the player wants the game's shot. */
+    const int over_event = g_game_camera == REIPAN_OTS_CAM_EVENT &&
+                           g_set.event_cameras &&
+                           g_walk_free_ticks >= kEventFreeTicks;
+    if (!g_set.enabled || plyr == nullptr ||
+        (g_game_camera != REIPAN_OTS_CAM_MAP && !over_event))
     {
         g_was_active = 0;
         return;
     }
+    g_debug.over_event = over_event;
 
     if (!g_was_active || g_pivot_owner != plyr)
     {

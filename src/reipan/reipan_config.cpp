@@ -145,6 +145,7 @@ ReiPan_Config reipan_config = {
         /* .collision         = */ 1,
         /* .auto_follow       = */ 1,
         /* .invert_y          = */ 0,
+        /* .event_cameras     = */ 1,
         /* The framing the first play-test settled on. */
         /* .distance          = */ 25.0f,
         /* .height            = */ 26.0f,
@@ -1355,6 +1356,7 @@ static void ConfigLoadOnce(void)
     ReadInt("over_shoulder_camera", "collision", &cam->collision);
     ReadInt("over_shoulder_camera", "auto_follow", &cam->auto_follow);
     ReadInt("over_shoulder_camera", "invert_y", &cam->invert_y);
+    ReadInt("over_shoulder_camera", "event_cameras", &cam->event_cameras);
     ReadFloat("over_shoulder_camera", "distance", &cam->distance);
     ReadFloat("over_shoulder_camera", "height", &cam->height);
     ReadFloat("over_shoulder_camera", "side", &cam->side);
@@ -1415,6 +1417,10 @@ std::string BuildCameraSection()
         "; Stick up looks down. On top of the game's own \"Point of view\"\n"
         ";   option, which this camera follows too.\n"
         "invert_y = %d\n"
+        "; Where the game hands a walk to a scripted camera (the dream's\n"
+        ";   graveyard path), keep this camera while she can walk. 0 shows\n"
+        ";   the game's shot. Moments that take control away always do.\n"
+        "event_cameras = %d\n"
         "; World units; Rei stands about 27 tall.\n"
         ";   distance 10..45 behind the shoulder, height 10..32 of the pivot\n"
         ";   above her feet, side 0..12 off her shoulder.\n"
@@ -1428,7 +1434,7 @@ std::string BuildCameraSection()
         "; How far the camera lags her movement, 0 (rigid)..0.8.\n"
         "smoothing = %.2f\n",
         c->over_shoulder, c->side_left, c->collision, c->auto_follow,
-        c->invert_y, (double)c->distance, (double)c->height, (double)c->side,
+        c->invert_y, c->event_cameras, (double)c->distance, (double)c->height, (double)c->side,
         (double)c->fov, (double)c->sensitivity, (double)c->smoothing);
     return text;
 }
@@ -1864,6 +1870,7 @@ void ReiPan_ConfigApply(void)
     ots.collision = c->collision;
     ots.auto_follow = c->auto_follow;
     ots.invert_y = c->invert_y;
+    ots.event_cameras = c->event_cameras;
     ots.distance = c->distance;
     ots.height = c->height;
     ots.side = c->side;
@@ -1914,6 +1921,7 @@ void ReiPan_ConfigCapture(void)
     c->collision = ots.collision;
     c->auto_follow = ots.auto_follow;
     c->invert_y = ots.invert_y;
+    c->event_cameras = ots.event_cameras;
     c->distance = ots.distance;
     c->height = ots.height;
     c->side = ots.side;

@@ -198,6 +198,7 @@ typedef struct ReiPan_ConfigCamera
     int   collision;         /* pull in against the drawn scenery           */
     int   auto_follow;       /* drift back behind her while she walks       */
     int   invert_y;          /* on top of the game's own "Point of view"    */
+    int   event_cameras;     /* over scripted cameras while she can walk    */
     float distance;
     float height;
     float side;

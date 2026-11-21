@@ -1,0 +1,66 @@
+name: Release
+
+# Build Windows and publish it: tag v<version> on the commit this runs on, a
+# release titled "ReiPan v<version>" with release-notes/v<version>.md as its
+# description, and the build attached as ReiPan_windows_v<version>.zip.
+# Write and merge the notes file first; the run stops before building when it
+# is missing or the release already exists.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, e.g. 0.1.0-PZ (tag v<version>)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.check.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the notes and the tag
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          notes="release-notes/v${VERSION}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::No $notes on this branch."
+            exit 1
+          fi
+          if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::Release v${VERSION} already exists."
+            exit 1
+          fi
+          echo "name=ReiPan_windows_v${VERSION}" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: check
+    uses: ./.github/workflows/windows.yml
+    with:
+      name: ${{ needs.check.outputs.name }}
+
+  release:
+    needs: [check, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.check.outputs.name }}
+          path: dist/${{ needs.check.outputs.name }}
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          NAME: ${{ needs.check.outputs.name }}
+        run: |
+          (cd dist && zip -qr9 "${NAME}.zip" "${NAME}")
+          gh release create "v${VERSION}" "dist/${NAME}.zip" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "ReiPan v${VERSION}" --notes-file "release-notes/v${VERSION}.md"

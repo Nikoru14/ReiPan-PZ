@@ -18,9 +18,12 @@ Studio's generator ignores `CMAKE_BUILD_TYPE` and builds Debug unless told
 otherwise, which `--config Release` does; when opening the folder in Visual
 Studio, pick the **x64 Release** preset instead of x64 Debug.
 
-A Windows build is also made on GitHub: **Actions → Windows build → Run
-workflow** on any branch (pull requests into main get one too), then download
-the `ReiPan-windows-…` artifact from the run.
+A Windows build is also made on GitHub, only when asked for: **Actions →
+Windows build → Run workflow** on any branch, then download the
+`ReiPan-windows-…` artifact from the run. **Actions → Release** with a version
+(say `0.1.0-PZ`) builds the same and publishes it as release `v<version>`, with
+`release-notes/v<version>.md` as its description; write and merge that file
+first.
 
 The executable is `build/ReiPan/ReiPan`. To reuse checked-in shader bytecode,
 configure with `-DREIPAN_COMPILE_SHADERS=OFF`.

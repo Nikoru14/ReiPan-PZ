@@ -154,7 +154,7 @@ void StreamCreate(void)
     }
 
     /* One handler for both cores; it tells them apart by the bit it is given. */
-    sceSdSetSpu2IntrHandler(_intr_SignalSemaSPUAdrs, nullptr);
+    sceSdSetSpu2IntrHandler((void *)_intr_SignalSemaSPUAdrs, nullptr);
 
     PrintIOPMem("after create iopstream");
 }
@@ -1106,7 +1106,7 @@ static void StreamTransSub(STREAM_WRK *stp, int toggle)
     for (i = 0; i < stp->nchannel; i++)
     {
         trans_core = WaitSpuTransSema();
-        sceSdSetTransIntrHandler(trans_core, _intr_SignalTransCore, nullptr);
+        sceSdSetTransIntrHandler(trans_core, (void *)_intr_SignalTransCore, nullptr);
 
         while (sceSdVoiceTrans((short)trans_core, 0,
                                (unsigned char *)(now_voice_adrs
@@ -1162,7 +1162,7 @@ static void PreloadLoopPacketSub(STREAM_WRK *stp)
         for (i = 0; i < stp->nchannel; i++)
         {
             trans_core = WaitSpuTransSema();
-            sceSdSetTransIntrHandler(trans_core, _intr_SignalTransCore, nullptr);
+            sceSdSetTransIntrHandler(trans_core, (void *)_intr_SignalTransCore, nullptr);
 
             while (sceSdVoiceTrans((short)trans_core, 0, (unsigned char *)iop_buf,
                                    stp->spu_loop_packet[i] + j * stp->interleave_byte,

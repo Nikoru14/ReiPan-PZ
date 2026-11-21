@@ -165,6 +165,8 @@ ReiPan_Config reipan_config = {
                                      REIPAN_MOUSE_SRC_MIDDLE, REIPAN_MOUSE_SRC_WHEEL_UP,
                                      REIPAN_MOUSE_SRC_WHEEL_DOWN },
     },
+    /* Up on a first run, so the settings are there to be found. */
+    /* .overlay_menu_bar = */ 1,
 };
 
 namespace
@@ -1360,6 +1362,7 @@ static void ConfigLoadOnce(void)
 
     ReadInt("profiler", "summary", &reipan_config.profiler_summary);
     ReadInt("profiler", "fps_only", &reipan_config.profiler_fps_only);
+    ReadInt("overlay", "menu_bar", &reipan_config.overlay_menu_bar);
 
     ReiPan_ConfigCamera *cam = &reipan_config.camera;
     ReadInt("over_shoulder_camera", "enabled", &cam->over_shoulder);
@@ -1551,7 +1554,11 @@ int ReiPan_ConfigSave(void)
      * section is variable-length text rather than a fixed format string, and
      * regenerating it on the resize pass would be pure waste. */
     const std::string input_section = BuildInputSection();
-    const std::string camera_section = BuildCameraSection() + BuildMouseSection();
+    const std::string camera_section = BuildCameraSection() + BuildMouseSection() +
+        "\n[overlay]\n"
+        "; The menu bar F1 shows and hides, as it was left.\n"
+        "menu_bar = " + std::to_string(reipan_config.overlay_menu_bar != 0 ? 1 : 0) +
+        "\n";
     const std::string title_section = TitleText();
 
     auto format = [r, &input_section, &camera_section,

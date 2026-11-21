@@ -231,6 +231,7 @@ typedef struct ReiPan_Config
     int profiler_fps_only;
     ReiPan_ConfigCamera   camera;
     ReiPan_ConfigMouse    mouse;
+    int overlay_menu_bar;    /* the overlay's bar is up (F1), [overlay]     */
 } ReiPan_Config;
 
 extern ReiPan_Config reipan_config;

@@ -2243,9 +2243,14 @@ void DrawCameraSettingsMenu()
     {
         ImGui::TextDisabled("Off: the game's fixed cameras.");
     }
+    else if (d.ticks_since > 2)
+    {
+        ImGui::TextDisabled("The game's cameras are not running here.");
+    }
     else if (!d.active)
     {
-        ImGui::TextDisabled("Not on screen: the game's own camera has it.");
+        ImGui::TextDisabled("Not on screen: the game is using its %s.",
+                            ReiPan_OverShoulderCameraName(d.game_camera));
     }
     else
     {

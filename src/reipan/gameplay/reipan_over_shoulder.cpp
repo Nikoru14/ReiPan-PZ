@@ -17,6 +17,7 @@
 #include "outgame/option.h"                     // GetOptionWrk: b09, the look stick's y
 #include "reipan/gameplay/reipan_ots_geometry.h"
 #include "system/os/system.h"                    // GetSysWrk: the game tick
+#include "reipan/io/reipan_log.h"                // ReiPan_LogPrintf
 #include "system/pad/pad.h"                     // pad_wrk
 #include "system/pad/pad_ctrl.h"                // IsPadLocked
 
@@ -104,7 +105,9 @@ bool                        g_set_init = false;
 
 int   g_active = 0;          // on screen this frame
 int   g_was_active = 0;      // and last frame
-int   g_map_camera = 0;      // CameraMain ran the ordinary map camera
+int   g_game_camera = 0;     // REIPAN_OTS_CAM_*: what CameraMain ran
+int   g_logged_camera = -1;
+u_int g_ctrl_tick = 0;
 float g_yaw = 0.0f;
 float g_pitch = 0.0f;
 float g_boom = 0.0f;
@@ -713,12 +716,22 @@ void ReiPan_OverShoulderBeginFrame(void)
 
     g_was_active = g_active;
     g_active = 0;
-    g_map_camera = 0;
+    g_game_camera = REIPAN_OTS_CAM_NONE;
 }
 
-void ReiPan_OverShoulderNoteMapCamera(void)
+void ReiPan_OverShoulderNoteCamera(int which)
 {
-    g_map_camera = 1;
+    g_game_camera = which;
+}
+
+const char *ReiPan_OverShoulderCameraName(int which)
+{
+    static const char *const kNames[REIPAN_OTS_CAM_COUNT] = {
+        "none", "room camera", "event camera", "pinned target", "crawl view",
+        "peep view", "Camera Obscura", "stance camera", "damage/death shot",
+        "tattoo event", "ladder",
+    };
+    return which >= 0 && which < REIPAN_OTS_CAM_COUNT ? kNames[which] : "?";
 }
 
 void ReiPan_OverShoulderCameraCtrl(void)
@@ -733,7 +746,20 @@ void ReiPan_OverShoulderCameraCtrl(void)
     g_stock_valid = 1;
 
     g_debug.active = 0;
-    if (!g_set.enabled || !g_map_camera || plyr == nullptr)
+    g_debug.game_camera = g_game_camera;
+    g_ctrl_tick = GetSysWrk()->count;
+
+    /* Each change of the game's camera while this one is on, in the log, so
+     * a place where it does not take over can be told apart from the rest. */
+    if (g_set.enabled && g_game_camera != g_logged_camera)
+    {
+        ReiPan_LogPrintf("[camera] over-the-shoulder: the game's camera is now the %s%s\n",
+                         ReiPan_OverShoulderCameraName(g_game_camera),
+                         g_game_camera == REIPAN_OTS_CAM_MAP ? " (replaced)" : "");
+        g_logged_camera = g_game_camera;
+    }
+
+    if (!g_set.enabled || g_game_camera != REIPAN_OTS_CAM_MAP || plyr == nullptr)
     {
         g_was_active = 0;
         return;
@@ -828,6 +854,7 @@ int ReiPan_OverShoulderHidePlayer(void)
 void ReiPan_OverShoulderGetDebug(ReiPan_OverShoulderDebug *out)
 {
     *out = g_debug;
+    out->ticks_since = (int)(GetSysWrk()->count - g_ctrl_tick);
 }
 
 }

@@ -162,6 +162,7 @@ int CameraMain(void)
 
     if (pMcCtrl->pFinCamTarget != nullptr)
     {
+        ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_PINNED);  // PC
         gra3dcamSetTarget(pMcCtrl->pFinCamTarget, 1);
         gra3dApplyCamera(nullptr, 1, 1);
     }
@@ -172,14 +173,17 @@ int CameraMain(void)
 
         if (ingame_wrk.plyr_wrk->flags & (PLYR_FLG_8000000 | PLYR_FLG_10000000))
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_CRAWL);  // PC
             FinderViewCameraCtrl();
         }
         else if (ingame_wrk.plyr_wrk->_0e0 & 1)
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_PEEP);  // PC
             CameraSetFromRotPair();
         }
         else if (ingame_wrk.plyr_wrk->flags & PLYR_FLG_800000)
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_FINDER);  // PC
             type = MrecGetCameraType();
             if (type < 100)
             {
@@ -195,18 +199,21 @@ int CameraMain(void)
         }
         else if (PlyrMode10IsStarting(ingame_wrk.plyr_wrk))
         {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_STANCE);  // PC
             CamStanceMain();
         }
         else if (ingame_wrk.plyr_wrk->mode != PLYR_MODE_5)
         {
             if (ingame_wrk.plyr_wrk->mode == PLYR_MODE_7 && app_camera.mode != 0)
             {
+                ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_APPROACH);  // PC
                 PlyrApproachCameraCtrl(RectCamFlg);
             }
             else if (TattooEvCameraMain(RectCamFlg) != 0)
             {
                 if (app_camera.mode != 0)
                 {
+                    ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_APPROACH);  // PC
                     PlyrApproachCameraCtrl(RectCamFlg);
                 }
                 else
@@ -215,10 +222,18 @@ int CameraMain(void)
                     MapCamNormalCameraCtrl(RectCamFlg);
                     // PC: the ordinary room camera, not an event's: the shot
                     // the over-the-shoulder camera may replace.
-                    if (event_cam == 0)
-                        ReiPan_OverShoulderNoteMapCamera();
+                    ReiPan_OverShoulderNoteCamera(event_cam == 0 ? REIPAN_OTS_CAM_MAP
+                                                                 : REIPAN_OTS_CAM_EVENT);
                 }
             }
+            else
+            {
+                ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_TATTOO);  // PC
+            }
+        }
+        else
+        {
+            ReiPan_OverShoulderNoteCamera(REIPAN_OTS_CAM_LADDER);  // PC
         }
     }
 

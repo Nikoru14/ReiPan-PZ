@@ -54,9 +54,28 @@ void ReiPan_OverShoulderSetEnabled(int enabled);
  * that ease from where they were keep easing from their own shot. */
 void ReiPan_OverShoulderBeginFrame(void);
 
-/* CameraMain() ran the ordinary map camera this frame (no event, special
- * or player camera): the shot this camera may replace. */
-void ReiPan_OverShoulderNoteMapCamera(void);
+/* Which camera CameraMain() ran this frame.  Only REIPAN_OTS_CAM_MAP, the
+ * ordinary room camera, is a shot this camera may replace; the rest are
+ * named for the readout and the log. */
+enum
+{
+    REIPAN_OTS_CAM_NONE = 0,    /* CameraMain() did not pick one */
+    REIPAN_OTS_CAM_MAP,         /* the room's own camera */
+    REIPAN_OTS_CAM_EVENT,       /* a scripted event camera */
+    REIPAN_OTS_CAM_PINNED,      /* aimed at a pinned target */
+    REIPAN_OTS_CAM_CRAWL,       /* crawling: the low first-person view */
+    REIPAN_OTS_CAM_PEEP,        /* a peep-hole / look view */
+    REIPAN_OTS_CAM_FINDER,      /* the Camera Obscura */
+    REIPAN_OTS_CAM_STANCE,      /* the stance camera */
+    REIPAN_OTS_CAM_APPROACH,    /* the damage / death shot */
+    REIPAN_OTS_CAM_TATTOO,      /* a tattoo event */
+    REIPAN_OTS_CAM_LADDER,      /* a ladder */
+    REIPAN_OTS_CAM_COUNT
+};
+void ReiPan_OverShoulderNoteCamera(int which);
+
+/* Its name, for the readout. */
+const char *ReiPan_OverShoulderCameraName(int which);
 
 /* End of CameraMain()'s camera choice: replaces the shot when it may. */
 void ReiPan_OverShoulderCameraCtrl(void);
@@ -88,6 +107,8 @@ int ReiPan_OverShoulderHidePlayer(void);
 typedef struct ReiPan_OverShoulderDebug
 {
     int   active;
+    int   game_camera;      /* REIPAN_OTS_CAM_*: what CameraMain() ran */
+    int   ticks_since;      /* game ticks since CameraMain() last ran */
     float yaw_deg;
     float pitch_deg;
     float boom;             /* how far the camera hangs back now */

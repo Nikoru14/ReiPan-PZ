@@ -21,8 +21,8 @@ extern "C" {
  * special cameras run as the game made them, and the camera picks up again
  * where it was when they end.
  *
- * Distances are world units: Y grows downwards and Rei is about seventeen
- * tall.
+ * Distances are world units: Y grows downwards and Rei stands about 27
+ * tall (measured on screen; the title-camera note's seventeen is short).
  */
 
 typedef struct ReiPan_OverShoulderSettings
@@ -32,9 +32,9 @@ typedef struct ReiPan_OverShoulderSettings
     int   collision;        /* pull in against the drawn scenery */
     int   auto_follow;      /* drift back behind the player while she walks */
     int   invert_y;         /* stick up looks down */
-    float distance;         /* how far behind the shoulder, 6..30 */
-    float height;           /* pivot height above the feet, 6..20 */
-    float side;             /* shoulder offset, 0..8 */
+    float distance;         /* how far behind the shoulder, 10..45 */
+    float height;           /* pivot height above the feet, 10..32 */
+    float side;             /* shoulder offset, 0..12 */
     float fov_deg;          /* vertical field of view, 35..80 */
     float sensitivity;      /* right-stick speed multiplier, 0.25..3 */
     float smoothing;        /* how much the pivot lags the player, 0..0.8 */

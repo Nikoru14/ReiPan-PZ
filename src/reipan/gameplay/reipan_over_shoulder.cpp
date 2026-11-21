@@ -3,7 +3,7 @@
  *
  *  See reipan_over_shoulder.h.  Ported from MikuPan's (MikuPanOTS,
  *  src/mikupan/gameplay/mikupan_over_shoulder.cpp) to FF3: world units about
- *  1/44 of FF1's (Rei is about seventeen tall), a 30 Hz tick instead of 60,
+ *  1/28 of FF1's (Rei stands about 27 tall), a 30 Hz tick instead of 60,
  *  the GRA3D camera instead of FF1's, and the game's own camera-relative
  *  walking given this camera's heading instead of a movement replacement.
  * ======================================================================== */
@@ -50,10 +50,10 @@ constexpr int   kStickDeadzone = 24;
 /* The camera as a sphere against the drawn scenery: its radius, how far in
  * front of a hit it stops, and the size below which a piece is a rope, a
  * pole or a candle and is looked past. */
-constexpr float kCameraRadius = 0.6f;
-constexpr float kGeomMargin = 0.7f;
-constexpr float kShoulderMargin = 0.8f;
-constexpr float kThinPiece = 1.4f;
+constexpr float kCameraRadius = 1.0f;
+constexpr float kGeomMargin = 1.1f;
+constexpr float kShoulderMargin = 1.3f;
+constexpr float kThinPiece = 2.2f;
 
 /* Walls clamp at once so the camera never sees through them; after any pull
  * in it holds its distance a moment before easing back out, so narrow
@@ -64,18 +64,18 @@ constexpr float kShoulderPullRate = 0.51f;
 constexpr float kShoulderEaseOut = 0.10f;
 
 /* Keep the camera between these heights above the feet (Y grows down). */
-constexpr float kMinHeight = 1.4f;
-constexpr float kMaxHeight = 30.0f;
+constexpr float kMinHeight = 2.2f;
+constexpr float kMaxHeight = 48.0f;
 
 /* Below this boom the camera sits inside the shoulder; the gap between the
  * two stops the model flickering at the threshold. */
-constexpr float kHideModelBoom = 3.2f;
-constexpr float kShowModelBoom = 4.5f;
+constexpr float kHideModelBoom = 5.0f;
+constexpr float kShowModelBoom = 7.0f;
 
 /* Blend from the previous camera when it was near enough to be the same
  * shot (lowering the viewfinder, an event camera that ends where we are). */
 constexpr int   kBlendTicks = 6;
-constexpr float kBlendMaxDist = 40.0f;
+constexpr float kBlendMaxDist = 64.0f;
 
 /* Ticks of right-stick silence before the camera drifts back behind the
  * player, and the drift's and R3's rates. */
@@ -85,16 +85,16 @@ constexpr float kRecenterRate = 0.39f;
 
 /* After another camera has had the screen, keep the player's camera angle if
  * she is still standing where she was and facing the same way. */
-constexpr float kResumeMaxMove = 7.0f;
+constexpr float kResumeMaxMove = 11.0f;
 constexpr float kResumeMaxTurnDeg = 25.0f;
 
 /* The pivot snaps rather than eases when the player moves this far in one
  * tick (a door into the next room, a warp). */
-constexpr float kPivotSnap = 9.0f;
+constexpr float kPivotSnap = 14.0f;
 
 /* Looking from the camera this far ahead keeps the target stable however
  * short the boom gets. */
-constexpr float kLookDistance = 25.0f;
+constexpr float kLookDistance = 40.0f;
 
 constexpr unsigned short kPadR3 = 0x0400;   // FF2-internal bit (sdk/libpad.cpp)
 
@@ -288,7 +288,7 @@ float FreeAlong(const float from[3], const float dir[3], float length,
 float FreeShoulder(const float from[3], const float offset[3])
 {
     const float length = sqrtf(offset[0] * offset[0] + offset[2] * offset[2]);
-    if (length <= 0.05f)
+    if (length <= 0.08f)
     {
         return 1.0f;
     }
@@ -442,7 +442,7 @@ void AutoFollow(const PLYR_WRK *plyr)
      * camera would chase the turn. */
     const float moved = sqrtf(plyr->move_last[0] * plyr->move_last[0] +
                               plyr->move_last[2] * plyr->move_last[2]);
-    if (moved < 0.02f || (plyr->flags2 & 0x3f800) != 0)
+    if (moved < 0.03f || (plyr->flags2 & 0x3f800) != 0)
     {
         return;
     }
@@ -587,7 +587,7 @@ void ApplyBlend(float p[3], float t_i[3])
         p[i] += (g_blend_p[i] - p[i]) * t;
         t_i[i] += (g_blend_i[i] - t_i[i]) * t;
     }
-    g_blend_hide = Dist(p, g_pivot) < 5.0f;
+    g_blend_hide = Dist(p, g_pivot) < 8.0f;
     g_blend--;
 }
 
@@ -622,9 +622,9 @@ void ReiPan_OverShoulderDefaults(ReiPan_OverShoulderSettings *out)
     out->collision = 1;
     out->auto_follow = 1;
     out->invert_y = 0;
-    out->distance = 14.0f;
-    out->height = 13.0f;
-    out->side = 3.5f;
+    out->distance = 22.0f;
+    out->height = 20.0f;
+    out->side = 5.5f;
     out->fov_deg = 55.0f;
     out->sensitivity = 1.0f;
     out->smoothing = 0.3f;
@@ -645,9 +645,9 @@ void ReiPan_OverShoulderSetSettings(const ReiPan_OverShoulderSettings *in)
     s.collision = s.collision ? 1 : 0;
     s.auto_follow = s.auto_follow ? 1 : 0;
     s.invert_y = s.invert_y ? 1 : 0;
-    s.distance = Clamp(isfinite(s.distance) ? s.distance : 14.0f, 6.0f, 30.0f);
-    s.height = Clamp(isfinite(s.height) ? s.height : 13.0f, 6.0f, 20.0f);
-    s.side = Clamp(isfinite(s.side) ? s.side : 3.5f, 0.0f, 8.0f);
+    s.distance = Clamp(isfinite(s.distance) ? s.distance : 22.0f, 10.0f, 45.0f);
+    s.height = Clamp(isfinite(s.height) ? s.height : 20.0f, 10.0f, 32.0f);
+    s.side = Clamp(isfinite(s.side) ? s.side : 5.5f, 0.0f, 12.0f);
     s.fov_deg = Clamp(isfinite(s.fov_deg) ? s.fov_deg : 55.0f, 35.0f, 80.0f);
     s.sensitivity =
         Clamp(isfinite(s.sensitivity) ? s.sensitivity : 1.0f, 0.25f, 3.0f);

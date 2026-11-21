@@ -2209,9 +2209,9 @@ void DrawCameraSettingsMenu()
 
     ImGui::BeginDisabled(!enabled);
     ImGui::PushItemWidth(220.0f);
-    changed |= ImGui::SliderFloat("Distance", &s.distance, 6.0f, 30.0f, "%.1f");
-    changed |= ImGui::SliderFloat("Height", &s.height, 6.0f, 20.0f, "%.1f");
-    changed |= ImGui::SliderFloat("Shoulder offset", &s.side, 0.0f, 8.0f,
+    changed |= ImGui::SliderFloat("Distance", &s.distance, 10.0f, 45.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Height", &s.height, 10.0f, 32.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Shoulder offset", &s.side, 0.0f, 12.0f,
                                   "%.1f");
     changed |= ImGui::SliderFloat("Field of view", &s.fov_deg, 35.0f, 80.0f,
                                   "%.0f deg");

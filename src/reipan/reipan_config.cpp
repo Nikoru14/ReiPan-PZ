@@ -145,9 +145,9 @@ ReiPan_Config reipan_config = {
         /* .collision         = */ 1,
         /* .auto_follow       = */ 1,
         /* .invert_y          = */ 0,
-        /* .distance          = */ 14.0f,
-        /* .height            = */ 13.0f,
-        /* .side              = */ 3.5f,
+        /* .distance          = */ 22.0f,
+        /* .height            = */ 20.0f,
+        /* .side              = */ 5.5f,
         /* .fov               = */ 55.0f,
         /* .sensitivity       = */ 1.0f,
         /* .smoothing         = */ 0.3f,
@@ -1414,9 +1414,9 @@ std::string BuildCameraSection()
         "; Stick up looks down. On top of the game's own \"Point of view\"\n"
         ";   option, which this camera follows too.\n"
         "invert_y = %d\n"
-        "; World units; Rei is about seventeen tall.\n"
-        ";   distance 6..30 behind the shoulder, height 6..20 of the pivot\n"
-        ";   above her feet, side 0..8 off her shoulder.\n"
+        "; World units; Rei stands about 27 tall.\n"
+        ";   distance 10..45 behind the shoulder, height 10..32 of the pivot\n"
+        ";   above her feet, side 0..12 off her shoulder.\n"
         "distance = %.2f\n"
         "height = %.2f\n"
         "side = %.2f\n"

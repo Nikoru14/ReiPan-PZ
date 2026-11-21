@@ -931,13 +931,13 @@ Page CameraPage()
 
     rows.push_back(Heading("Framing"));
     rows.push_back(CameraSlider("Distance", "How far behind her the camera hangs.",
-                                6.0f, 30.0f, 0.5f,
+                                10.0f, 45.0f, 0.5f,
                                 &ReiPan_OverShoulderSettings::distance, "%.1f"));
     rows.push_back(CameraSlider("Height", "How high above her feet it looks from.",
-                                6.0f, 20.0f, 0.5f,
+                                10.0f, 32.0f, 0.5f,
                                 &ReiPan_OverShoulderSettings::height, "%.1f"));
     rows.push_back(CameraSlider("Shoulder offset", "How far to the side of her it sits.",
-                                0.0f, 8.0f, 0.25f,
+                                0.0f, 12.0f, 0.25f,
                                 &ReiPan_OverShoulderSettings::side, "%.2f"));
     rows.push_back(CameraSlider("Field of view", "Vertical, in degrees.",
                                 35.0f, 80.0f, 1.0f,

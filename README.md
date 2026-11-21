@@ -10,8 +10,13 @@ audio are handled by the game. Windows uses prebuilt FFmpeg from `extern/ffmpeg`
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+cmake --build build -j --config Release
 ```
+
+Build Release: a Debug build runs the game at half speed or less. Visual
+Studio's generator ignores `CMAKE_BUILD_TYPE` and builds Debug unless told
+otherwise, which `--config Release` does; when opening the folder in Visual
+Studio, pick the **x64 Release** preset instead of x64 Debug.
 
 The executable is `build/ReiPan/ReiPan`. To reuse checked-in shader bytecode,
 configure with `-DREIPAN_COMPILE_SHADERS=OFF`.

@@ -3179,6 +3179,7 @@ bool Init(SDL_Window *window, SDL_GPUDevice *device,
     ReiPan_ConfigLoad();
     g_show_performance_summary = reipan_config.profiler_summary != 0;
     g_summary_fps_only = reipan_config.profiler_fps_only != 0;
+    g_show_main_menu_bar = reipan_config.overlay_menu_bar != 0;
     g_context = ImGui::CreateContext();
     if (g_context == nullptr)
     {
@@ -3296,6 +3297,9 @@ void ProcessEvent(const SDL_Event *event)
             event->key.scancode == SDL_SCANCODE_F1)
         {
             g_show_main_menu_bar = !g_show_main_menu_bar;
+            /* Remembered for the next launch. */
+            reipan_config.overlay_menu_bar = g_show_main_menu_bar ? 1 : 0;
+            ReiPan_ConfigSave();
         }
     }
 }

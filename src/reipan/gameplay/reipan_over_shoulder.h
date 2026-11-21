@@ -25,6 +25,19 @@ extern "C" {
  * tall (measured on screen; the title-camera note's seventeen is short).
  */
 
+/* What happens when the game cuts to an event camera while the player can
+ * still walk -- a ghost appearing, something to look at, or a walk the game
+ * films itself (the dream's graveyard path).  Moments that take control away
+ * always play their own shot. */
+enum
+{
+    REIPAN_OTS_SCARE_GUIDED = 0,  /* stay over the shoulder, turn once towards
+                                     what the event's shot frames */
+    REIPAN_OTS_SCARE_ORIGINAL,    /* the event's own shot */
+    REIPAN_OTS_SCARE_OFF,         /* stay over the shoulder, look nowhere */
+    REIPAN_OTS_SCARE_COUNT
+};
+
 typedef struct ReiPan_OverShoulderSettings
 {
     int   enabled;          /* 0: the game's fixed cameras */
@@ -32,7 +45,7 @@ typedef struct ReiPan_OverShoulderSettings
     int   collision;        /* pull in against the drawn scenery */
     int   auto_follow;      /* drift back behind the player while she walks */
     int   invert_y;         /* stick up looks down */
-    int   event_cameras;    /* take over a scripted camera while she can walk */
+    int   scare_camera;     /* REIPAN_OTS_SCARE_* */
     float distance;         /* how far behind the shoulder, 10..45 */
     float height;           /* pivot height above the feet, 10..32 */
     float side;             /* shoulder offset, 0..12 */
@@ -57,7 +70,7 @@ void ReiPan_OverShoulderBeginFrame(void);
 
 /* Which camera CameraMain() ran this frame.  REIPAN_OTS_CAM_MAP, the ordinary
  * room camera, is a shot this camera replaces, and REIPAN_OTS_CAM_EVENT too
- * while the player can walk (settings.event_cameras); the rest are named for
+ * while the player can walk, as the Scare camera setting says; the rest are named for
  * the readout and the log. */
 enum
 {
@@ -110,6 +123,7 @@ typedef struct ReiPan_OverShoulderDebug
 {
     int   active;
     int   over_event;       /* on screen in place of an event camera */
+    int   guiding;          /* turning towards an event shot's subject */
     int   game_camera;      /* REIPAN_OTS_CAM_*: what CameraMain() ran */
     int   ticks_since;      /* game ticks since CameraMain() last ran */
     float yaw_deg;

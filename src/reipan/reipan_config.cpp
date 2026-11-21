@@ -146,7 +146,7 @@ ReiPan_Config reipan_config = {
         /* .collision         = */ 1,
         /* .auto_follow       = */ 1,
         /* .invert_y          = */ 0,
-        /* .event_cameras     = */ 1,
+        /* .scare_camera      = */ REIPAN_OTS_SCARE_GUIDED,
         /* The framing the first play-test settled on. */
         /* .distance          = */ 25.0f,
         /* .height            = */ 26.0f,
@@ -1370,7 +1370,26 @@ static void ConfigLoadOnce(void)
     ReadInt("over_shoulder_camera", "collision", &cam->collision);
     ReadInt("over_shoulder_camera", "auto_follow", &cam->auto_follow);
     ReadInt("over_shoulder_camera", "invert_y", &cam->invert_y);
-    ReadInt("over_shoulder_camera", "event_cameras", &cam->event_cameras);
+    {
+        /* Before the Scare camera there was only event_cameras: 0 showed the
+         * event's shot, 1 kept this camera (now Guided). */
+        int legacy = -1;
+        ReadInt("over_shoulder_camera", "event_cameras", &legacy);
+        if (legacy == 0)
+        {
+            cam->scare_camera = REIPAN_OTS_SCARE_ORIGINAL;
+        }
+        const char *scare = Lookup("over_shoulder_camera", "scare_camera");
+        if (scare != nullptr && scare[0] != '\0')
+        {
+            if (SDL_strcasecmp(scare, "original") == 0)
+                cam->scare_camera = REIPAN_OTS_SCARE_ORIGINAL;
+            else if (SDL_strcasecmp(scare, "off") == 0)
+                cam->scare_camera = REIPAN_OTS_SCARE_OFF;
+            else
+                cam->scare_camera = REIPAN_OTS_SCARE_GUIDED;
+        }
+    }
     ReadFloat("over_shoulder_camera", "distance", &cam->distance);
     ReadFloat("over_shoulder_camera", "height", &cam->height);
     ReadFloat("over_shoulder_camera", "side", &cam->side);
@@ -1453,10 +1472,13 @@ std::string BuildCameraSection()
         "; Stick up looks down. On top of the game's own \"Point of view\"\n"
         ";   option, which this camera follows too.\n"
         "invert_y = %d\n"
-        "; Where the game hands a walk to a scripted camera (the dream's\n"
-        ";   graveyard path), keep this camera while she can walk. 0 shows\n"
-        ";   the game's shot. Moments that take control away always do.\n"
-        "event_cameras = %d\n"
+        "; When the game cuts to an event camera while she can still walk\n"
+        ";   (a ghost appearing, something to look at, the dream's graveyard\n"
+        ";   path): guided keeps this camera and turns it once towards what\n"
+        ";   the event's shot frames; original shows the event's shot; off\n"
+        ";   keeps this camera and looks nowhere. Moments that take control\n"
+        ";   away always play their own shot.\n"
+        "scare_camera = %s\n"
         "; World units; Rei stands about 27 tall.\n"
         ";   distance 10..45 behind the shoulder, height 10..32 of the pivot\n"
         ";   above her feet, side 0..12 off her shoulder.\n"
@@ -1470,7 +1492,10 @@ std::string BuildCameraSection()
         "; How far the camera lags her movement, 0 (rigid)..0.8.\n"
         "smoothing = %.2f\n",
         c->over_shoulder, c->side_left, c->collision, c->auto_follow,
-        c->invert_y, c->event_cameras, (double)c->distance, (double)c->height, (double)c->side,
+        c->invert_y,
+        c->scare_camera == REIPAN_OTS_SCARE_ORIGINAL ? "original"
+            : c->scare_camera == REIPAN_OTS_SCARE_OFF ? "off" : "guided",
+        (double)c->distance, (double)c->height, (double)c->side,
         (double)c->fov, (double)c->sensitivity, (double)c->smoothing);
     return text;
 }
@@ -1943,7 +1968,7 @@ void ReiPan_ConfigApply(void)
     ots.collision = c->collision;
     ots.auto_follow = c->auto_follow;
     ots.invert_y = c->invert_y;
-    ots.event_cameras = c->event_cameras;
+    ots.scare_camera = c->scare_camera;
     ots.distance = c->distance;
     ots.height = c->height;
     ots.side = c->side;
@@ -2005,7 +2030,7 @@ void ReiPan_ConfigCapture(void)
     c->collision = ots.collision;
     c->auto_follow = ots.auto_follow;
     c->invert_y = ots.invert_y;
-    c->event_cameras = ots.event_cameras;
+    c->scare_camera = ots.scare_camera;
     c->distance = ots.distance;
     c->height = ots.height;
     c->side = ots.side;

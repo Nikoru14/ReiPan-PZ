@@ -971,14 +971,24 @@ Page CameraPage()
         "Pull in against the rooms and furniture as they are drawn: over a "
         "low table, short of a wall or a closed door.",
         &ReiPan_OverShoulderSettings::collision, "Off", "On"));
-    rows.push_back(CameraToggle(
-        "Event cameras",
-        "Where the game hands a walk to a scripted camera (the graveyard path "
-        "in the dream, for one): keep the over-the-shoulder camera while you "
-        "can walk, or show the game's shot. Moments that take control away "
-        "always play their own camera.",
-        &ReiPan_OverShoulderSettings::event_cameras, "Original",
-        "Over the shoulder"));
+    rows.push_back(When(
+        Choice("Scare camera",
+               Fixed("When the game cuts to an event camera while you can "
+                     "still walk -- a ghost appearing, something to look at, "
+                     "the dream's graveyard path. Guided: stay over the "
+                     "shoulder and turn once towards what the shot frames; "
+                     "the right stick or mouse takes over at once. Original: "
+                     "the game's own shot. Off: stay over the shoulder. "
+                     "Moments that take control away always play their own "
+                     "shot."),
+               {"Guided", "Original", "Off"},
+               [] { return CameraSettings().scare_camera; },
+               [](int value) {
+                   EditCamera([value](ReiPan_OverShoulderSettings &s) {
+                       s.scare_camera = value;
+                   });
+               }),
+        CameraOn));
     rows.push_back(CameraToggle(
         "Follow behind",
         "Drift back behind her while she walks and the right stick is idle.",

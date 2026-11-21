@@ -187,7 +187,7 @@ int ReiPan_ConfigTitlePaste(const char *text, int replace);
 
 /*
  * The over-the-shoulder camera (gameplay/reipan_over_shoulder.h), section
- * [over_shoulder_camera].  Distances in world units (Rei is about seventeen
+ * [over_shoulder_camera].  Distances in world units (Rei stands about 27
  * tall).  Every field is 4 bytes, so the overlay's settle-and-save compare can
  * memcmp it.
  */

@@ -622,10 +622,10 @@ void ReiPan_OverShoulderDefaults(ReiPan_OverShoulderSettings *out)
     out->collision = 1;
     out->auto_follow = 1;
     out->invert_y = 0;
-    out->distance = 22.0f;
-    out->height = 20.0f;
-    out->side = 5.5f;
-    out->fov_deg = 55.0f;
+    out->distance = 25.0f;
+    out->height = 26.0f;
+    out->side = 3.5f;
+    out->fov_deg = 60.0f;
     out->sensitivity = 1.0f;
     out->smoothing = 0.3f;
 }
@@ -645,10 +645,10 @@ void ReiPan_OverShoulderSetSettings(const ReiPan_OverShoulderSettings *in)
     s.collision = s.collision ? 1 : 0;
     s.auto_follow = s.auto_follow ? 1 : 0;
     s.invert_y = s.invert_y ? 1 : 0;
-    s.distance = Clamp(isfinite(s.distance) ? s.distance : 22.0f, 10.0f, 45.0f);
-    s.height = Clamp(isfinite(s.height) ? s.height : 20.0f, 10.0f, 32.0f);
-    s.side = Clamp(isfinite(s.side) ? s.side : 5.5f, 0.0f, 12.0f);
-    s.fov_deg = Clamp(isfinite(s.fov_deg) ? s.fov_deg : 55.0f, 35.0f, 80.0f);
+    s.distance = Clamp(isfinite(s.distance) ? s.distance : 25.0f, 10.0f, 45.0f);
+    s.height = Clamp(isfinite(s.height) ? s.height : 26.0f, 10.0f, 32.0f);
+    s.side = Clamp(isfinite(s.side) ? s.side : 3.5f, 0.0f, 12.0f);
+    s.fov_deg = Clamp(isfinite(s.fov_deg) ? s.fov_deg : 60.0f, 35.0f, 80.0f);
     s.sensitivity =
         Clamp(isfinite(s.sensitivity) ? s.sensitivity : 1.0f, 0.25f, 3.0f);
     s.smoothing = Clamp(isfinite(s.smoothing) ? s.smoothing : 0.3f, 0.0f, 0.8f);

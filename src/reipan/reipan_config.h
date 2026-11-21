@@ -207,6 +207,19 @@ typedef struct ReiPan_ConfigCamera
     float smoothing;
 } ReiPan_ConfigCamera;
 
+/*
+ * The mouse in play (io/reipan_game_mouse.h), section [mouse]: looking, its
+ * speed, how the Camera Obscura button works and which control each action is
+ * on (REIPAN_MOUSE_SRC_*, written by name).  Every field is 4 bytes.
+ */
+typedef struct ReiPan_ConfigMouse
+{
+    int   look;
+    float sensitivity;
+    int   camera_toggle;     /* 0 hold, 1 toggle                            */
+    int   bind[5];           /* REIPAN_MOUSE_ACT_* order                    */
+} ReiPan_ConfigMouse;
+
 typedef struct ReiPan_Config
 {
     /* Order matters: reipan_config.cpp's defaults are a positional
@@ -217,6 +230,7 @@ typedef struct ReiPan_Config
     int profiler_summary;
     int profiler_fps_only;
     ReiPan_ConfigCamera   camera;
+    ReiPan_ConfigMouse    mouse;
 } ReiPan_Config;
 
 extern ReiPan_Config reipan_config;

@@ -62,6 +62,23 @@ Distance, height, shoulder, field of view, look speed and smoothing are on the
 same page and saved under `[over_shoulder_camera]` in `reipan.ini`. The
 overlay's menu also shows what the collision is doing.
 
+## Mouse
+
+In play the mouse works as in MikuPan:
+
+- **Looking:** it turns the over-the-shoulder camera and aims the Camera
+  Obscura. The pointer is captured while it does, and free again in every menu
+  and while the overlay's bar is up (F1 shows and hides it).
+- **Right button:** raises the Camera Obscura. **Options → Controls → Camera
+  Obscura button** picks **Hold** (up while held) or **Toggle** (click to raise,
+  click to lower).
+- **With the Camera Obscura up:** left button is the shutter (held charges),
+  middle button the lens shot, and the wheel changes film.
+
+Mouse look and its sensitivity are on the same Options page. The overlay's
+**Settings → Controls → Mouse** also moves each action to another button.
+Everything is saved under `[mouse]` in `reipan.ini`.
+
 ## PS2 save transfer
 
 Open **Settings → PS2 save transfer…** to transfer European, US or Japanese

@@ -2,6 +2,7 @@
 
 #include "reipan_file.h"
 #include "reipan_menu_mouse.h"
+#include "reipan_game_mouse.h"
 #include "reipan_paths.h"
 #include "../os/reipan_host.h"
 
@@ -462,6 +463,7 @@ void ReiPan_InputUpdate(void)
     ReiPan_HostPumpEvents();    /* the main thread pumps when the game has its own */
     SelectGamepad();
     ReiPan_MenuMousePoll();
+    ReiPan_GameMousePoll();     /* after the menus: they have the mouse first */
     AdvanceStickRamps();
 }
 

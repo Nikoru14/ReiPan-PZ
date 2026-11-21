@@ -432,6 +432,23 @@ extern "C" void ReiPan_Ps5StartWatch(void)
         return;
     }
     started = true;
+
+    /* The title's data has to lie above the PS2's RAM window, or the game
+     * takes its buffers for PS2 addresses (ps5/native/ps5-pie.ld). */
+    static char probe_bss[16];
+    static const char probe_ro[] = "ReiPan";
+    const uintptr_t data = (uintptr_t)probe_bss;
+    const uintptr_t ro = (uintptr_t)probe_ro;
+    const uintptr_t code = (uintptr_t)&ReiPan_Ps5StartWatch;
+    SDL_Log("PS5: title code at %#llx, read-only data at %#llx, data at %#llx",
+            (unsigned long long)code, (unsigned long long)ro, (unsigned long long)data);
+    /* (reipan_memory.cpp's REIPAN_PS2_RAM_END) */
+    const uintptr_t ps2_ram_end = 0x05100000u;
+    if (data < ps2_ram_end || ro < ps2_ram_end)
+    {
+        ReiPan_Ps5Notify("ReiPan: the title's data lies inside the PS2's RAM window; "
+                         "loads will go astray");
+    }
     if (SDL_Thread *thread = ReiPan_SdlThreadCreate(WatchThread, "ps5-watch", nullptr))
     {
         SDL_DetachThread(thread);

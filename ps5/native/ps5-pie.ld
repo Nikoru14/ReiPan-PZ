@@ -26,9 +26,16 @@ SECTIONS {
         *(.plt .plt.*)
     } : text
 
-    /* ReiPan: the start/end markers are read by the SDK's libunwind, which
-     * C++ exceptions need; the same markers as the SDK's own linker script. */
-    .eh_frame_hdr : ALIGN(CONSTANT(MAXPAGESIZE)) {
+    /* ReiPan: everything but the code starts at 128 MB. The console loads a
+     * title at 0x400000, and the game tells a PS2 address from a host pointer
+     * by range: 0x00400000..0x05100000 is the PS2's RAM (reipan_memory.cpp).
+     * A buffer of the game's own in that range -- any static -- would be taken
+     * for a PS2 address and its loads written into the emulated RAM instead.
+     * Code addresses are never passed as data, so the code may stay low.
+     *
+     * The start/end markers are read by the SDK's libunwind, which C++
+     * exceptions need; the same markers as the SDK's own linker script. */
+    .eh_frame_hdr 0x8000000 : ALIGN(CONSTANT(MAXPAGESIZE)) {
         PROVIDE_HIDDEN(__eh_frame_hdr_start = .);
         KEEP(*(.eh_frame_hdr))
         PROVIDE_HIDDEN(__eh_frame_hdr_end = .);

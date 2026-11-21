@@ -40,6 +40,7 @@
 #include "reipan/io/reipan_log.h"       // PC: ReiPan_LogInit
 #include "reipan/os/reipan_host.h"      // PC: ReiPan_HostMain
 #include "reipan/os/reipan_pacing.h"    // PC: ReiPan_ResolveVBlankWait
+#include "reipan/reipan_profiler.h"     // PC: ReiPan_ProfilerRecordVblankPacing
 #include "reipan/reipan_memory.h"       // PC: ReiPan_GetHostPointer
 #include "reipan/io/reipan_paths.h"           // PC: ReiPan_PathLogDataRoot
 #include "reipan/reipan_ui/reipan_rml_gamefiles.h" // PC: ReiPan_RmlGameFilesTick
@@ -732,6 +733,9 @@ void WaitVBlank(void)
 {
     int count;
     int remain;
+    int target;
+    int waits;
+    uint64_t wait_start;
 
     count = 0;
     sceGsSyncPath(0, 0);
@@ -742,9 +746,18 @@ void WaitVBlank(void)
 
     // PC: the platform's pacing override (a profiler harness) may replace the
     // game's wait count; it returns the game's own value when off.
-    remain = (ReiPan_ResolveVBlankWait(SYSTEM_VBLANK_WAIT_NUM) - count) - 1;
+    target = ReiPan_ResolveVBlankWait(SYSTEM_VBLANK_WAIT_NUM);
+    remain = (target - count) - 1;
+
+    // PC: time the wait for the profiler, so its Game CPU figure is the
+    // frame's work and not the work plus the fields spent idle here.  Without
+    // this a frame that overran by a little and then waited out the next
+    // field read as a frame that took that long to compute.
+    wait_start = ReiPan_ProfilerNow();
+    waits = 1;
     if (remain > 0)
     {
+        waits += remain;
         do
         {
             remain--;
@@ -752,6 +765,8 @@ void WaitVBlank(void)
         } while (remain != 0);
     }
     WaitSema(vblank_sema);
+    ReiPan_ProfilerRecordVblankPacing(ReiPan_ProfilerNow() - wait_start,
+                                      count, waits, target);
 
     REG_RCNT0_COUNT = 0;
     REG_RCNT1_COUNT = 0;

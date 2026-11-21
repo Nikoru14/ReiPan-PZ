@@ -31,6 +31,15 @@
 #define InfoModeCurExOffs       3
 #define InfoModeIdTable         4
 
+/* PC (PS5): the console's own pad library (libScePad, which ps5/platform reads
+ * the controllers through) exports scePadInit and scePadRead too.  Linked into
+ * one title, the PS2's would stand in for the console's, which then never
+ * starts: no controller.  So on the console the PS2's go by other names. */
+#ifdef __PROSPERO__
+#define scePadInit ReiPan_Ps2PadInit
+#define scePadRead ReiPan_Ps2PadRead
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

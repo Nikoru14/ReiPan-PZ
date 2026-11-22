@@ -8505,6 +8505,12 @@ void ApplyOriginalAspectToVertices()
  * there is no point paying for one when the field budget leaves no room for an
  * in-between to spend it on. */
 constexpr float kGeometryMaxTickJump = 200.0f;
+/* How far a vertex may stray from its draw's average motion over one tick, as
+ * a share of the draw's size, before the draw is taken for a mispairing and
+ * not blended (ApplyGeometryVertexBlend()); and a floor in world units, so a
+ * draw of a few texels' size is not judged on rounding. */
+constexpr float kGeometryMaxIncoherence = 0.35f;
+constexpr float kGeometryMinIncoherence = 0.25f;
 
 bool ModelJumped(const float *from, const float *to)
 {
@@ -8640,42 +8646,43 @@ bool ResidentKeyLess(const GeometrySnapshotDraw &a, const GeometrySnapshotDraw &
     return a.key.flags < b.key.flags;
 }
 
-/* The centre of a streamed draw's vertices in a position snapshot (four floats
- * per vertex), or false when the span is not all inside it. */
-bool StreamedDrawCentre(const std::vector<float> &positions,
-                        const GeometryDrawKey &key, float out[3])
+/* How far apart two like-shaped streamed draws are, vertex for vertex: the
+ * sum of squared distances between vertex k of one and vertex k of the other,
+ * or a negative value when either span is not all inside its snapshot. */
+double StreamedDrawDistance(const GeometryDrawKey &curr_key,
+                            const GeometryDrawKey &prev_key)
 {
-    const size_t first = key.first_vertex;
-    const size_t count = key.vertex_count;
-    if (count == 0 || (first + count) * 4u > positions.size())
+    const size_t count = curr_key.vertex_count;
+    const size_t curr_first = curr_key.first_vertex;
+    const size_t prev_first = prev_key.first_vertex;
+    if (count == 0 || count != prev_key.vertex_count ||
+        (curr_first + count) * 4u > g_geo_curr_positions.size() ||
+        (prev_first + count) * 4u > g_geo_prev_positions.size())
     {
-        return false;
+        return -1.0;
     }
-    double sum[3] = {0.0, 0.0, 0.0};
-    for (size_t v = first; v < first + count; v++)
+    double sum = 0.0;
+    for (size_t k = 0; k < count; k++)
     {
+        const float *a = &g_geo_curr_positions[(curr_first + k) * 4u];
+        const float *b = &g_geo_prev_positions[(prev_first + k) * 4u];
         for (int c = 0; c < 3; c++)
         {
-            sum[c] += positions[v * 4u + (size_t)c];
+            const double d = (double)a[c] - (double)b[c];
+            sum += d * d;
         }
     }
-    for (int c = 0; c < 3; c++)
-    {
-        out[c] = (float)(sum[c] / (double)count);
-    }
-    return true;
+    return sum;
 }
 
 /*
- * A run of like-shaped streamed draws (her two legs) pairs by where each one
- * is, not by its place in the run.  The game draws such a run in whatever
- * order its sort gave this frame -- turning or bending, the legs swap -- and
- * pairing in order then blends the left leg from the right one: the extra
- * frame drew both at the midpoint, on top of each other, and one leg seemed
- * to vanish for that frame.  A row of identical curtain panels, swaying, is
- * the same case.  Greedy by distance between centres, which for pieces this
- * far apart is the right answer.  Returns false (pair them in order) when a
- * centre cannot be had.
+ * A run of like-shaped streamed draws (her two legs, a row of curtain panels)
+ * pairs by how far apart the draws are, vertex for vertex -- exactly the error
+ * the blend would make -- not by place in the run.  The game draws such a run
+ * in whatever order its sort gave that frame, so pairing in order blended the
+ * left leg from the right one when they swapped.  Greedy, which for pieces
+ * this far apart is the right answer.  Returns false (pair them in order) when
+ * a distance cannot be had.
  */
 bool PairStreamedRunByPosition(size_t curr_first, size_t prev_first, size_t run,
                                const std::vector<uint32_t> &streamed)
@@ -8685,41 +8692,29 @@ bool PairStreamedRunByPosition(size_t curr_first, size_t prev_first, size_t run,
     {
         return false;
     }
-    float curr_centre[kMaxRun][3];
-    float prev_centre[kMaxRun][3];
+    double distance[kMaxRun][kMaxRun];
     for (size_t k = 0; k < run; k++)
     {
-        if (!StreamedDrawCentre(g_geo_curr_positions,
-                                g_geo_curr_draws[curr_first + k].key,
-                                curr_centre[k]) ||
-            !StreamedDrawCentre(g_geo_prev_positions,
-                                g_geo_prev_draws[streamed[prev_first + k]].key,
-                                prev_centre[k]))
+        for (size_t m = 0; m < run; m++)
         {
-            return false;
+            distance[k][m] =
+                StreamedDrawDistance(g_geo_curr_draws[curr_first + k].key,
+                                     g_geo_prev_draws[streamed[prev_first + m]].key);
+            if (distance[k][m] < 0.0)
+            {
+                return false;
+            }
         }
     }
     bool taken[kMaxRun] = {};
     for (size_t k = 0; k < run; k++)
     {
         size_t best = run;
-        float best_distance = 0.0f;
         for (size_t m = 0; m < run; m++)
         {
-            if (taken[m])
-            {
-                continue;
-            }
-            float distance = 0.0f;
-            for (int c = 0; c < 3; c++)
-            {
-                const float d = curr_centre[k][c] - prev_centre[m][c];
-                distance += d * d;
-            }
-            if (best == run || distance < best_distance)
+            if (!taken[m] && (best == run || distance[k][m] < distance[k][best]))
             {
                 best = m;
-                best_distance = distance;
             }
         }
         taken[best] = true;
@@ -9052,6 +9047,59 @@ void ApplyGeometryVertexBlend(float t)
         if (jumped)
         {
             continue;
+        }
+
+        /* And one whose vertices did not move together -- each away from the
+         * draw's average motion by more than kGeometryMaxIncoherence of the
+         * draw's own size -- keeps its own positions too.  That is not a body
+         * moving but the wrong vertices paired: the vertices of a draw the
+         * game re-sorts every frame (a see-through curtain), or a like-shaped
+         * draw's counterpart that is not this one.  Blended, its triangles
+         * were scrambled for the in-between frame: the flicker on curtains
+         * and on her legs.  A swinging limb, whose far end moves more than its
+         * root, stays well inside the bound.  Again a decision made from the
+         * two snapshots alone, so every present of the tick agrees. */
+        {
+            double mean[3] = {0.0, 0.0, 0.0};
+            float lo[3] = {std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()};
+            float hi[3] = {-std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()};
+            for (size_t vertex = first; vertex < first + count; vertex++)
+            {
+                const float *from = prev + (vertex - first) * 4u;
+                const float *to = &g_geo_curr_positions[vertex * 4u];
+                for (int c = 0; c < 3; c++)
+                {
+                    mean[c] += (double)to[c] - (double)from[c];
+                    lo[c] = std::min(lo[c], to[c]);
+                    hi[c] = std::max(hi[c], to[c]);
+                }
+            }
+            float extent2 = 0.0f;
+            for (int c = 0; c < 3; c++)
+            {
+                mean[c] /= (double)count;
+                extent2 += (hi[c] - lo[c]) * (hi[c] - lo[c]);
+            }
+            const float limit = std::max(kGeometryMaxIncoherence * std::sqrt(extent2),
+                                         kGeometryMinIncoherence);
+            bool incoherent = false;
+            for (size_t vertex = first; vertex < first + count && !incoherent;
+                 vertex++)
+            {
+                const float *from = prev + (vertex - first) * 4u;
+                const float *to = &g_geo_curr_positions[vertex * 4u];
+                float deviation2 = 0.0f;
+                for (int c = 0; c < 3; c++)
+                {
+                    const float d = (to[c] - from[c]) - (float)mean[c];
+                    deviation2 += d * d;
+                }
+                incoherent = !(deviation2 <= limit * limit);
+            }
+            if (incoherent)
+            {
+                continue;
+            }
         }
 
         for (size_t vertex = first; vertex < first + count; vertex++)

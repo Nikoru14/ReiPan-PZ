@@ -936,8 +936,19 @@ static void StreamVoiceThread(void)
 
     stp->voice_th = 1;
 
+    /* PORT: each VoiceThreadExit() below is followed by a return.  On the IOP
+     * ExitThread() never returns; here it does (ReiPan_IopExitThread), and a
+     * voice thread stopped before it began went on into the fill and play loop
+     * of the stream it had just released.  Parked there for good, it read as
+     * running, so the slot's next voice thread could never be launched: that
+     * stream's stop never completed, the slot was abandoned, and the main
+     * menu's background movie and music never started (a black menu, seen on
+     * the PS5 after quitting a game). */
     if (stp->stop)
+    {
         VoiceThreadExit(stp);
+        return;
+    }
 
     /* Fill both SPU buffers before anything is keyed on. */
     for (i = 0; i < 2; i++)
@@ -961,13 +972,19 @@ static void StreamVoiceThread(void)
     while (!(stp->play_ok && !stp->pause))
     {
         if (stp->stop)
+        {
             VoiceThreadExit(stp);
+            return;
+        }
 
         SleepThread();
     }
 
     if (stp->stop)
+    {
         VoiceThreadExit(stp);
+        return;
+    }
 
     /* Drain any interrupt left over from a previous stream on this core. */
     while (PollSema(sema_Voice_array[stp->irq_core]) != KE_SEMA_ZERO)

@@ -80,12 +80,17 @@
 /* PORT: how often StreamReadThread() looks to see whether the voice thread it
  * has just started has taken its first packet yet. */
 #define HANDOFF_POLL_US     100
+/* PORT: how long a stream thread's launch waits for the slot's previous
+ * instance to finish exiting (StartStreamThread). */
+#define RELAUNCH_POLL_US    1000
+#define RELAUNCH_WAIT_US    3000000
 
 STREAM_WRK stream_wrk[STREAM_WRK_NUM];                                       /* data 10   */
 static int sema_Voice_array[STREAM_WRK_NUM];                                 /* bss 1d00  */
 
 static void StreamReleaseSub(STREAM_WRK *stp);
 static void StreamReadThread(void);
+static int  StartStreamThread(STREAM_WRK *stp, int thid);
 static void StreamVoiceThread(void);
 static int  _intr_SignalSemaSPUAdrs(int core_bit, void *dumy);
 static void StreamTransSub(STREAM_WRK *stp, int toggle);
@@ -266,6 +271,7 @@ void StreamStart(STREAM_START *p)
     stp->read_th   = 0;
     stp->voice_end = 0;
     stp->voice_th  = 0;
+    stp->voice_launched = 0;
     stp->use       = 1;
 
     stp->nchannel        = p->nchannel;
@@ -361,7 +367,48 @@ void StreamStart(STREAM_START *p)
 
     /* Only the reader starts here; it starts the voice thread once the ring
      * has enough in it to play from. */
-    StartThread(stp->read_th_idx, 0);
+    StartStreamThread(stp, stp->read_th_idx);
+}
+
+/* PORT: launch one of this stream's threads, for a stream that has not
+ * launched it yet.
+ *
+ * The slot's previous stream released it from whichever of its threads
+ * finished second, and that thread's StreamReleaseSub() waits on the SPU stop
+ * block -- about 100 ms -- before it exits.  The EE is told the slot is free
+ * before then, and may start the next stream on it at once.  StartThread()
+ * gives an exiting thread 10 ms and then answers "already running", and the ROM
+ * ignored that answer: the new stream's read thread never ran, its read_end was
+ * never raised, and its stop could never complete -- the slot was abandoned,
+ * and the next stream on it (the main menu's background movie and its music)
+ * never started, behind a black screen.  On the PS5 the window is hit often.
+ *
+ * So wait for the old instance to finish, as the IOP's priorities made sure it
+ * had.  The thread is this stream's and cannot legitimately be running yet, so
+ * "already running" here only ever means "still exiting". */
+static int StartStreamThread(STREAM_WRK *stp, int thid)
+{
+    int waited;
+
+    for (waited = 0;; waited += RELAUNCH_POLL_US)
+    {
+        if (StartThread(thid, 0) == 0)
+        {
+            if (thid == stp->voice_th_idx)
+                stp->voice_launched = 1;
+            if (waited > 0)
+                printf("iop: stream %d thread %d launched after %d us\n", stp->id, thid,
+                       waited);
+            return 0;
+        }
+        if (waited >= RELAUNCH_WAIT_US)
+        {
+            printf("iop: stream %d thread %d still busy after %d us\n", stp->id, thid,
+                   waited);
+            return -1;
+        }
+        DelayThread(RELAUNCH_POLL_US);
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -485,8 +532,12 @@ void StreamStop(STREAM_STOP *p)
      * stopped while the ring is still filling -- so start it here so it can
      * run its own teardown.  A non-zero result means it was already running,
      * and then it only needs waking. */
-    if (StartThread(stp->voice_th_idx, 0) == 0)
+    /* PORT: launched-or-not is this stream's own record, not StartThread()'s
+     * answer, which also says "running" for the previous stream's instance
+     * still on its way out (StartStreamThread). */
+    if (!stp->voice_launched)
     {
+        StartStreamThread(stp, stp->voice_th_idx);
         printf("Voice Thread Start From Stop\n");
     }
     else
@@ -559,7 +610,9 @@ void StreamAbort(STREAM_STOP *p)
      * StreamVoiceThread() a second time over a stream that is being torn down. */
     if (!stp->voice_end)
     {
-        if (StartThread(stp->voice_th_idx, 0) != 0)
+        if (!stp->voice_launched)
+            StartStreamThread(stp, stp->voice_th_idx);
+        else
             WakeupThread(stp->voice_th_idx);
     }
 
@@ -734,7 +787,7 @@ static void StreamReadThread(void)
                  * So do what the scheduler did and let the voice thread take
                  * its first packet before going on.  Only wait for a thread that
                  * actually started, and give up on a stop. */
-                if (StartThread(stp->voice_th_idx, 0) == 0)
+                if (StartStreamThread(stp, stp->voice_th_idx) == 0)
                 {
                     while (stp->rb_voice == 0 && !stp->stop && !stp->voice_end)
                         DelayThread(HANDOFF_POLL_US);
@@ -850,8 +903,8 @@ static void StreamReadThread(void)
 stopped:
     /* Stopped before the ring ever filled, so the voice thread was never
      * started.  Start it anyway -- it is the one that reports the slot free. */
-    if (first_read)
-        StartThread(stp->voice_th_idx, 0);
+    if (first_read && !stp->voice_launched)
+        StartStreamThread(stp, stp->voice_th_idx);
 
     ReadThreadExit(stp);
 }

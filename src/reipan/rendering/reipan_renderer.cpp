@@ -1293,6 +1293,15 @@ std::vector<float> g_geo_prev_positions;
 std::vector<float> g_geo_curr_positions;
 /* Per current draw, its corresponding previous draw, or -1. */
 std::vector<int32_t> g_geo_pairs;
+/* Per current draw, for a streamed draw that found no partner: the average
+ * motion over the tick of the nearest streamed draw that did, which it
+ * borrows (BorrowGeometryMotion()); `valid` false when there is none. */
+struct GeometryBorrowedMotion
+{
+    bool valid;
+    float move[3];
+};
+std::vector<GeometryBorrowedMotion> g_geo_borrowed;
 size_t g_geo_paired;
 /* This frame's snapshot is complete and may become the next frame's previous. */
 bool g_geo_snapshot_valid;
@@ -8525,6 +8534,14 @@ constexpr float kGeometryMinPairMove = 12.0f;
  * squared world units so near-equal tiny costs do not flip. */
 constexpr double kGeometryPairSwitch = 4.0;
 constexpr double kGeometryPairSwitchSlack = 0.25;
+/* And never while the order's own partner is within 3 world units on average
+ * (9, squared): her face turning with her head moves each patch about as far
+ * as the next one, and the switch took the neighbour; a crossed leg or a
+ * curtain's other light band is further than that. */
+constexpr double kGeometryPairSwitchMinCost = 9.0;
+/* How far, centre to centre, an unpaired streamed draw looks for a paired one
+ * to borrow its motion from (BorrowGeometryMotion()). */
+constexpr float kGeometryBorrowRadius = 20.0f;
 
 bool ModelJumped(const float *from, const float *to)
 {
@@ -8573,6 +8590,7 @@ bool GeometryDrawIsEligible(const DrawCommand &draw)
 void InvalidateGeometrySnapshot()
 {
     g_geo_pairs.clear();
+    g_geo_borrowed.clear();
     g_geo_paired = 0;
     g_geo_snapshot_valid = false;
     g_geo_vertices_valid = false;
@@ -8807,7 +8825,8 @@ void PairGeometryDraws()
         float found_extent = in_order_extent;
         if (closest != end &&
             (in_order == end ||
-             in_order_cost > kGeometryPairSwitch * closest_cost + kGeometryPairSwitchSlack))
+             (in_order_cost > kGeometryPairSwitchMinCost &&
+              in_order_cost > kGeometryPairSwitch * closest_cost + kGeometryPairSwitchSlack)))
         {
             found = closest;
             found_cost = closest_cost;
@@ -8886,6 +8905,121 @@ int32_t GeometryPairOf(size_t index)
  * because nothing between here and the upload stage touches g_draws except
  * ConvertMeshDrawsToStreamed(), which announces itself.
  */
+/*
+ * A streamed draw with no partner -- one the game builds afresh each tick, its
+ * vertex count changing (an outline or glow around her) -- has nothing to
+ * blend from, and left where the tick put it, it rode half a tick ahead of the
+ * body it wraps: a pale double around her head and arm as she turned.  So it
+ * borrows the average motion of the nearest streamed draw that did pair,
+ * centre to centre within kGeometryBorrowRadius, and travels with that.
+ */
+void BorrowGeometryMotion()
+{
+    const std::vector<GeometrySnapshotDraw> &curr = g_geo_curr_draws;
+    const std::vector<GeometrySnapshotDraw> &prev = g_geo_prev_draws;
+    struct Mover
+    {
+        float centre[3];
+        float move[3];
+    };
+    thread_local std::vector<Mover> movers;
+    try
+    {
+        g_geo_borrowed.assign(curr.size(), GeometryBorrowedMotion{false, {0, 0, 0}});
+        movers.clear();
+    }
+    catch (const std::bad_alloc &)
+    {
+        g_geo_borrowed.clear();
+        return;
+    }
+
+    auto centre_of = [](const std::vector<float> &positions,
+                        const GeometrySnapshotDraw &draw, float out[3]) {
+        const size_t first = draw.key.first_vertex;
+        const size_t count = draw.key.vertex_count;
+        if (count == 0 || (first + count) * 4u > positions.size())
+        {
+            return false;
+        }
+        double sum[3] = {0.0, 0.0, 0.0};
+        for (size_t v = first; v < first + count; v++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                sum[c] += positions[v * 4u + (size_t)c];
+            }
+        }
+        for (int c = 0; c < 3; c++)
+        {
+            out[c] = (float)(sum[c] / (double)count) + draw.model[12 + c];
+        }
+        return true;
+    };
+
+    for (size_t i = 0; i < curr.size() && i < g_draws.size(); i++)
+    {
+        const int32_t pair = GeometryPairOf(i);
+        if (pair < 0 || curr[i].key.mesh != nullptr ||
+            !GeometryDrawIsEligible(g_draws[i]))
+        {
+            continue;
+        }
+        Mover mover;
+        float before[3];
+        if (!centre_of(g_geo_curr_positions, curr[i], mover.centre) ||
+            !centre_of(g_geo_prev_positions, prev[(size_t)pair], before))
+        {
+            continue;
+        }
+        for (int c = 0; c < 3; c++)
+        {
+            mover.move[c] = mover.centre[c] - before[c];
+        }
+        movers.push_back(mover);
+    }
+    if (movers.empty())
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < curr.size() && i < g_draws.size(); i++)
+    {
+        if (GeometryPairOf(i) >= 0 || curr[i].key.mesh != nullptr ||
+            !GeometryDrawIsEligible(g_draws[i]))
+        {
+            continue;
+        }
+        float centre[3];
+        if (!centre_of(g_geo_curr_positions, curr[i], centre))
+        {
+            continue;
+        }
+        float best = kGeometryBorrowRadius * kGeometryBorrowRadius;
+        const Mover *found = nullptr;
+        for (const Mover &mover : movers)
+        {
+            float d2 = 0.0f;
+            for (int c = 0; c < 3; c++)
+            {
+                const float d = mover.centre[c] - centre[c];
+                d2 += d * d;
+            }
+            if (d2 <= best)
+            {
+                best = d2;
+                found = &mover;
+            }
+        }
+        if (found != nullptr)
+        {
+            GeometryBorrowedMotion &borrowed = g_geo_borrowed[i];
+            borrowed.valid = true;
+            std::memcpy(borrowed.move, found->move, sizeof(borrowed.move));
+        }
+    }
+}
+
 void CaptureGeometrySnapshot(int extra)
 {
     InvalidateGeometrySnapshot();
@@ -8932,6 +9066,7 @@ void CaptureGeometrySnapshot(int extra)
     g_geo_snapshot_valid = true;
 
     PairGeometryDraws();
+    BorrowGeometryMotion();
     /* Only that there IS a previous position buffer.  A paired draw's span
      * sits at different places in the two buffers, so each blend checks both
      * against their own buffer's size (ApplyGeometryVertexBlend()). */
@@ -9010,6 +9145,32 @@ void ApplyGeometryVertexBlend(float t)
         const int32_t pair = GeometryPairOf(i);
         if (pair < 0)
         {
+            /* Unpaired, but travelling with its nearest paired neighbour
+             * (BorrowGeometryMotion()); on the tick itself, its own place. */
+            if (i < g_geo_borrowed.size() && g_geo_borrowed[i].valid)
+            {
+                const DrawCommand &loose = g_draws[i];
+                const size_t first = (size_t)loose.first_vertex;
+                const size_t count = (size_t)loose.vertex_count;
+                if (GeometryDrawIsEligible(loose) && !loose.indexed_mesh &&
+                    !loose.resident_mesh && count != 0 && count <= curr_limit &&
+                    first <= curr_limit - count && count <= g_vertices.size() &&
+                    first <= g_vertices.size() - count)
+                {
+                    const float back = t >= 1.0f ? 0.0f : 1.0f - t;
+                    const float *move = g_geo_borrowed[i].move;
+                    for (size_t vertex = first; vertex < first + count; vertex++)
+                    {
+                        const float *to = &g_geo_curr_positions[vertex * 4u];
+                        float *position = g_vertices[vertex].position;
+                        for (int c = 0; c < 3; c++)
+                        {
+                            position[c] = to[c] - move[c] * back;
+                        }
+                        position[3] = to[3];
+                    }
+                }
+            }
             continue;
         }
         const DrawCommand &draw = g_draws[i];

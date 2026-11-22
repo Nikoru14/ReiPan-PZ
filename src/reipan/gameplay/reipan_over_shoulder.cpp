@@ -74,6 +74,13 @@ constexpr float kMaxHeight = 48.0f;
 constexpr float kHideModelBoom = 5.0f;
 constexpr float kShowModelBoom = 7.0f;
 
+/* Nor may it stand inside her body, which a short boom pitched steeply up or
+ * down reaches however long the boom is: within this distance of the line
+ * from her feet to the top of her head (kBodyHeight), with the same gap. */
+constexpr float kHideBodyRadius = 5.0f;
+constexpr float kShowBodyRadius = 6.5f;
+constexpr float kBodyHeight = 29.0f;
+
 /* Blend from the previous camera when it was near enough to be the same
  * shot (lowering the viewfinder, an event camera that ends where we are). */
 constexpr int   kBlendTicks = 6;
@@ -697,11 +704,22 @@ void BuildCamera(float out_p[3], float out_i[3])
         out_i[i] = out_p[i] + forward[i] * kLookDistance;
     }
 
-    if (g_boom < kHideModelBoom)
+    /* How far the camera is from her body's axis, if it is level with her. */
+    float body_distance = 1.0e9f;
+    {
+        const float above = plyr->pos[1] - out_p[1];
+        if (above > -kCameraRadius && above < kBodyHeight + kCameraRadius)
+        {
+            const float dx = out_p[0] - plyr->pos[0];
+            const float dz = out_p[2] - plyr->pos[2];
+            body_distance = sqrtf(dx * dx + dz * dz);
+        }
+    }
+    if (g_boom < kHideModelBoom || body_distance < kHideBodyRadius)
     {
         g_hide_model = 1;
     }
-    else if (g_boom > kShowModelBoom)
+    else if (g_boom > kShowModelBoom && body_distance > kShowBodyRadius)
     {
         g_hide_model = 0;
     }

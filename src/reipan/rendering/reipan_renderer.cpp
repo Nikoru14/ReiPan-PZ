@@ -496,6 +496,9 @@ struct DrawCommand
      * against it): its vertices are a different subset each tick, so the
      * extra frames cannot pair it vertex for vertex (PairGeometryDraws()). */
     bool clipped = false;
+    /* What the stream drew, as ReiPan_RendererSetNextMeshStreamSource() named
+     * it; NULL when unnamed. */
+    const void *stream_source = nullptr;
 
     /*
      * The viewfinder surround, queued by ReiPan_RendererDrawFinderMask().  A
@@ -1284,6 +1287,10 @@ struct GeometrySnapshotDraw
     GeometryDrawKey key;
     float model[16];
     bool clipped;
+    /* The streamed draw's source (DrawCommand::stream_source), and which of
+     * this frame's draws of that source it is, counting from 0. */
+    const void *source;
+    uint32_t occurrence;
 };
 
 /* The previous logical frame, and the one being presented.  Swapped at the end
@@ -8746,6 +8753,7 @@ void PairGeometryDraws()
      * own list: the window is counted in streamed draws, or a room's hundred
      * resident units ahead of the characters would put them out of reach. */
     thread_local std::vector<uint32_t> streamed;
+    thread_local std::vector<uint32_t> named;
     thread_local std::vector<uint32_t> resident;
     thread_local std::vector<char> taken;
     try
@@ -8753,10 +8761,13 @@ void PairGeometryDraws()
         g_geo_pairs.assign(curr.size(), -1);
         taken.assign(prev.size(), 0);
         streamed.clear();
+        named.clear();
         resident.clear();
         for (size_t k = 0; k < prev.size(); k++)
         {
-            (prev[k].key.mesh != nullptr ? resident : streamed)
+            (prev[k].key.mesh != nullptr ? resident
+             : prev[k].source != nullptr ? named
+                                         : streamed)
                 .push_back((uint32_t)k);
         }
     }
@@ -8778,11 +8789,72 @@ void PairGeometryDraws()
      * still further away than kGeometryMaxPairMove of the draw's own size is
      * left unblended -- the draw came, went or changed, and has no partner.
      */
+    /*
+     * A named streamed draw -- a character's skinned piece, whose SGD unit is
+     * at the same address every tick -- pairs with the draw of last frame
+     * that drew the same unit the same time, and with nothing else: the same
+     * vertices, whatever the game's sort did and however close the camera is.
+     * Guessing among her face's like-shaped patches by order and distance
+     * still took a neighbour with the camera against her face, and the extra
+     * frame tore it apart.  One whose triangles changed (SameShape()) is left
+     * unpaired and borrows its motion (BorrowGeometryMotion()).
+     */
+    const auto named_less = [&prev](uint32_t a, uint32_t b) {
+        return std::less<const void *>()(prev[a].source, prev[b].source) ||
+               (prev[a].source == prev[b].source &&
+                prev[a].occurrence < prev[b].occurrence);
+    };
+    std::sort(named.begin(), named.end(), named_less);
+    for (size_t i = 0; i < curr.size(); i++)
+    {
+        if (!GeometryDrawIsEligible(g_draws[i]) || curr[i].key.mesh != nullptr ||
+            curr[i].source == nullptr || curr[i].clipped)
+        {
+            continue;
+        }
+        const auto found = std::lower_bound(
+            named.begin(), named.end(), curr[i],
+            [&prev](uint32_t a, const GeometrySnapshotDraw &b) {
+                return std::less<const void *>()(prev[a].source, b.source) ||
+                       (prev[a].source == b.source &&
+                        prev[a].occurrence < b.occurrence);
+            });
+        if (found == named.end())
+        {
+            continue;
+        }
+        const GeometrySnapshotDraw &candidate = prev[*found];
+        if (candidate.source != curr[i].source ||
+            candidate.occurrence != curr[i].occurrence || candidate.clipped ||
+            taken[*found] || !candidate.key.SameShape(curr[i].key))
+        {
+            continue;
+        }
+        /* The same bound as a guessed pair: a unit drawn twice a frame in an
+         * order that changed, or a model remapped over the same address, is
+         * not the same piece moving. */
+        double cost = 0.0;
+        float extent = 0.0f;
+        if (!StreamedPairCost(curr[i], candidate, &cost, &extent))
+        {
+            continue;
+        }
+        const double limit = std::max((double)kGeometryMaxPairMove * extent,
+                                      (double)kGeometryMinPairMove);
+        if (!(cost <= limit * limit))
+        {
+            continue;
+        }
+        taken[*found] = 1;
+        g_geo_pairs[i] = (int32_t)*found;
+        g_geo_paired++;
+    }
+
     size_t next = 0;
     for (size_t i = 0; i < curr.size(); i++)
     {
         if (!GeometryDrawIsEligible(g_draws[i]) || curr[i].key.mesh != nullptr ||
-            curr[i].clipped)
+            curr[i].source != nullptr || curr[i].clipped)
         {
             continue;
         }
@@ -9286,6 +9358,8 @@ void CaptureGeometrySnapshot(int extra)
         return;
     }
 
+    thread_local std::unordered_map<const void *, uint32_t> occurrences;
+    occurrences.clear();
     for (size_t i = 0; i < g_draws.size(); i++)
     {
         const DrawCommand &draw = g_draws[i];
@@ -9299,6 +9373,19 @@ void CaptureGeometrySnapshot(int extra)
         snapshot.key.flags = GeometryDrawFlags(draw);
         std::memcpy(snapshot.model, draw.model, sizeof(snapshot.model));
         snapshot.clipped = draw.clipped;
+        snapshot.source = draw.resident_mesh ? nullptr : draw.stream_source;
+        snapshot.occurrence = 0;
+        if (snapshot.source != nullptr)
+        {
+            try
+            {
+                snapshot.occurrence = occurrences[snapshot.source]++;
+            }
+            catch (const std::bad_alloc &)
+            {
+                snapshot.source = nullptr;
+            }
+        }
     }
     for (size_t vertex = 0; vertex < g_vertices.size(); vertex++)
     {
@@ -17730,12 +17817,21 @@ void ReiPan_RendererInvalidateMeshCache(const void *owner)
     g_mesh_cache_invalidations++;
 }
 
+const void *g_next_mesh_stream_source;
+
+void ReiPan_RendererSetNextMeshStreamSource(const void *source)
+{
+    g_next_mesh_stream_source = source;
+}
+
 unsigned int ReiPan_RendererBeginMeshStream(const sceGsTex0 *tex0,
                                               int expected_vertex_count,
                                               const float *local_world,
                                               const ReiPanLightState *fragment_lights,
                                               const void *texture)
 {
+    const void *source = g_next_mesh_stream_source;
+    g_next_mesh_stream_source = nullptr;
     if (expected_vertex_count <= 0 || (expected_vertex_count % 3) != 0 ||
         local_world == nullptr || !g_3d_camera_valid || !g_frame_active ||
         g_mesh_stream.token != 0 || !EnsureRenderer() ||
@@ -17756,6 +17852,7 @@ unsigned int ReiPan_RendererBeginMeshStream(const sceGsTex0 *tex0,
     pending.command.mag_linear = true;
     pending.command.preserve_original_aspect = false;
     pending.command.transform_mesh = true;
+    pending.command.stream_source = source;
     TagShadowPass(pending.command);
     SnapshotFragmentLights(pending.command, fragment_lights);
     ApplyGsDrawEnv(pending.command);

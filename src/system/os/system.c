@@ -41,6 +41,10 @@
 #include "reipan/os/reipan_host.h"      // PC: ReiPan_HostMain
 #include "reipan/os/reipan_pacing.h"    // PC: ReiPan_ResolveVBlankWait
 #include "reipan/reipan_profiler.h"     // PC: ReiPan_ProfilerRecordVblankPacing
+#include "reipan/reipan_ps5.h"         // PC: ReiPan_Ps5FrameTick
+#ifdef __PROSPERO__
+#include <SDL3/SDL_hints.h>             // PC (PS5): the console's drivers
+#endif
 #include "reipan/reipan_memory.h"       // PC: ReiPan_GetHostPointer
 #include "reipan/io/reipan_paths.h"           // PC: ReiPan_PathLogDataRoot
 #include "reipan/reipan_ui/reipan_rml_gamefiles.h" // PC: ReiPan_RmlGameFilesTick
@@ -643,7 +647,20 @@ static int GameMain(void)
 
 int main(void)
 {
+#ifdef __PROSPERO__
+    // PC (PS5): the console's own drivers (ps5/sdl): the screen through
+    // VK_KHR_display on RADV, AudioOut, and the controllers through scePad.
+    // Before the first SDL_Init, which the host makes.
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "ps5");
+    SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "ps5");
+    SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
+#endif
     ReiPan_LogInit();
+#ifdef __PROSPERO__
+    ReiPan_Ps5Notify("%s starting. Log: %sreipan.log", REIPAN_PS5_BUILD_LABEL,
+                     ReiPan_Ps5UserDir());
+    ReiPan_Ps5StartWatch();
+#endif
     return ReiPan_HostMain(GameMain);
 }
 
@@ -737,6 +754,11 @@ void WaitVBlank(void)
     int waits;
     uint64_t wait_start;
 
+#ifdef __PROSPERO__
+    // PC (PS5): held here while the console's home screen has the controller;
+    // the V-blanks counted meanwhile are drained below, so nothing catches up.
+    ReiPan_Ps5FrameTick();
+#endif
     count = 0;
     sceGsSyncPath(0, 0);
     while (PollSema(vblank_sema) != -1)

@@ -477,7 +477,7 @@ void iopSndInit(IOP_SND_INIT *si)
     stop_block_size = sizeof(stop_block);
 
     trans_spu_core = WaitSpuTransSema();
-    sceSdSetTransIntrHandler(trans_spu_core, _intr_SignalTransCore, 0);
+    sceSdSetTransIntrHandler(trans_spu_core, (void *)_intr_SignalTransCore, 0);
 
     while (sceSdVoiceTrans((short)trans_spu_core, 0, (unsigned char *)stop_block,
                            (unsigned int)si->stop_block, stop_block_size) < 0)

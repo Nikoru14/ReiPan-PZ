@@ -44,6 +44,7 @@
  * ======================================================================== */
 
 #include "iop_voice.h"
+#include "reipan/os/reipan_thread.h"
 
 #include "libsd.h"
 #include "iop_reverb.h"
@@ -946,13 +947,25 @@ void ReiPan_VoiceInit(void)
     SDL_ResumeAudioDevice(audio_dev);
 
     voice_quit   = 0;
-    voice_thread = SDL_CreateThread(VoiceThreadMain, "iop_voice", NULL);
+    voice_thread = ReiPan_SdlThreadCreate(VoiceThreadMain, "iop_voice", NULL);
     if (voice_thread == NULL)
         printf("iop_voice: SDL_CreateThread failed: %s\n", SDL_GetError());
 
     voice_ready = 1;
     printf("iop_voice: audio device %u open, %d voices, mixed\n",
            (unsigned)audio_dev, IOP_VOICE_NUM);
+}
+
+/* The whole sound output held (the PS5's home screen).  The mixer only mixes
+ * what the device has room for, so it waits with it. */
+void ReiPan_VoiceSetPaused(int paused)
+{
+    if (audio_dev == 0)
+        return;
+    if (paused)
+        SDL_PauseAudioDevice(audio_dev);
+    else
+        SDL_ResumeAudioDevice(audio_dev);
 }
 
 void ReiPan_VoiceShutdown(void)

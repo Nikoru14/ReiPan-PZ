@@ -414,12 +414,15 @@ Page DisplayPage()
     Page page{"display", "Display", {}};
     std::vector<Row> &rows = page.rows;
 
+#ifndef __PROSPERO__
+    /* (the PS5 has one full screen and no windows) */
     rows.push_back(Choice(
         "Window", Fixed("A window on the desktop, or the whole screen. Alt+Enter "
                         "switches too."),
         {"Windowed", "Borderless fullscreen"},
         [] { return ReiPan_RendererGetWindowMode(); },
         [](int mode) { ReiPan_RendererSetWindowMode(mode); }));
+#endif
     rows.push_back(Choice(
         "Aspect ratio",
         Fixed("Auto fills the window and shows more of the world at the "
@@ -474,6 +477,8 @@ Page DisplayPage()
         "Reset picture", Fixed("All four back to 1.00, which skips the pass."),
         "Reset", [] { ReiPan_RendererSetGrade(1.0f, 1.0f, 1.0f, 1.0f); }));
 
+#ifndef __PROSPERO__
+    /* (the PS5's display swapchain offers 8-bit SDR only) */
     rows.push_back(Heading("HDR"));
     rows.push_back(Choice(
         "HDR output", HdrHelp, {"Off", "Auto", "scRGB", "HDR10"},
@@ -563,6 +568,7 @@ Page DisplayPage()
                },
                Format("%.2f")),
         HdrActive));
+#endif
     return page;
 }
 
@@ -841,6 +847,8 @@ Page ControlsPage()
         [] { return std::clamp((int)GameOptions().pad_cfg, 0, 2); },
         [](int value) { GameOptions().pad_cfg = (signed char)value; }));
 
+#ifndef __PROSPERO__
+    /* (no mouse on the console) */
     rows.push_back(Heading("Mouse"));
     rows.push_back(Toggle(
         "Mouse look",
@@ -874,6 +882,9 @@ Page ControlsPage()
             });
         }));
 
+#endif
+#ifndef __PROSPERO__
+    /* (bindings are rebound in the overlay, which needs a keyboard) */
     rows.push_back(Heading("Bindings"));
     Row reset = When(
         Action("Reset all bindings",
@@ -889,6 +900,7 @@ Page ControlsPage()
                }),
         [] { return ReiPan_InputBindingsAreDefault() == 0; });
     rows.push_back(std::move(reset));
+#endif
     return page;
 }
 

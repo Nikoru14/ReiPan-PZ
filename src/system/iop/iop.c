@@ -149,7 +149,7 @@ void MyTransEEWait(uintptr_t iop_buf, uintptr_t ee_buf, unsigned int size)
     FlushDcache();
 
     CpuSuspendIntr(&old);
-    sceSifSetDmaIntr(&dat, 1, _intr_SifSetDma, &sif_dma_sema);
+    sceSifSetDmaIntr(&dat, 1, (void *)_intr_SifSetDma, &sif_dma_sema);
     CpuResumeIntr(old);
 
     WaitSema(sif_dma_sema);
@@ -173,7 +173,7 @@ int ReferSemaNowCount(int sema_id)
 void MyCdRead(unsigned int start_sector, unsigned int n_sector, void *buf)
 {
     int        count = 0;
-    sceCdRMode crm   = { 0, cd_read_mode, 0, 0 };
+    sceCdRMode crm   = { 0, (u_char)cd_read_mode, 0, 0 };
 
     /* Drain any completion left over from a read that was declared hung:
      * iopCommand() signals sema_Sync_CD itself when CD_Abort_count runs out,
@@ -924,7 +924,7 @@ static void *iopCommandQuery(unsigned int command, void *data, int size)
         /* Clears the transfer status the EE left behind, then puts the
          * module's own completion handler back before releasing the core. */
         sceSdVoiceTransStatus(core, 1);
-        sceSdSetTransIntrHandler(core, _intr_SignalTransCore, 0);
+        sceSdSetTransIntrHandler(core, (void *)_intr_SignalTransCore, 0);
         SignalSpuTransSema(core);
         break;
     }

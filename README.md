@@ -89,6 +89,75 @@ Mouse look and its sensitivity are on the same Options page. The overlay's
 **Settings → Controls → Mouse** also moves each action to another button.
 Everything is saved under `[mouse]` in `reipan.ini`.
 
+## PlayStation 5 (experimental)
+
+ReiPan cross-builds for a jailbroken PS5 as a native title folder that
+[ShadowMount+](https://github.com/drakmor/ShadowMountPlus) can mount, the way
+MikuPan's PS5 build does. It renders with SDL_GPU's Vulkan backend on
+[PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan)'s RADV, Mesa's AMD
+Vulkan driver ported to the console, which is linked into the title. SDL3 gets
+the console's own video, audio and controller drivers from `ps5/sdl`. This is
+early work.
+
+What you need, on Linux or WSL2:
+
+- `cmake`, `ninja-build`, `meson`, `git`, `curl`, `unzip`, `python3`, and
+  [LLVM 22](https://github.com/llvm/llvm-project/releases) (RADV built with an
+  older Clang does not link into a title).
+- PS5_Vulkan with its RADV release archive built, by its own instructions:
+  it fetches its payload SDK fork and builds RADV from
+  [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa). Then build its
+  converter and `libc.prx`:
+
+  ```sh
+  bash PS5_Vulkan/tools/rebuild-libc.sh
+  ```
+
+  That gives `.deps/native/radv-release/lib/libvulkan_radeon.ps5.a`,
+  `build/runtime-shim/ps5-native-tool` and `runtime/libc.prx` inside
+  PS5_Vulkan. Nothing from your console is needed.
+
+Then configure and build with PS5_Vulkan's SDK and LLVM 22. The checked-in
+SPIR-V shaders are used:
+
+```sh
+export LLVM_CONFIG=<LLVM 22>/bin/llvm-config
+cmake -B build-ps5 -G Ninja \
+      -DCMAKE_TOOLCHAIN_FILE=<PS5_Vulkan>/.deps/native/ps5-payload-sdk/toolchain/prospero.cmake \
+      -DREIPAN_PS5_VULKAN_DIR=<PS5_Vulkan> \
+      -DCMAKE_BUILD_TYPE=RelWithDebInfo -DREIPAN_COMPILE_SHADERS=OFF
+cmake --build build-ps5 --target ReiPan
+```
+
+The title folder is written to `build-ps5/app/PPSA39393`. Copy it to
+`/data/homebrew/` (or `homebrew/` on a USB drive) for ShadowMount+ to mount.
+Put your game in `/data/ReiPan/`: the disc image (any `.iso`), or `IMG_BD.BIN`
+with `ZERO3.FHD` beside it. It is found when the title starts. Names are
+matched ignoring case.
+
+`reipan.ini`, the memory card, `reipan.log` and, after a crash, `crash.log`
+also go to `/data/ReiPan/`. If the title cannot write there, they go to its own
+`/download0/ReiPan/` instead. The title reports starting and stopping as PS5
+notifications, and the game pauses, sound included, while the home screen is
+up. L3 with R3 shows and hides the overlay's bar, as F1 does on a PC. The
+window, HDR, mouse and key-binding options are left out on the console.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `REIPAN_PS5_TITLE_ID` | `PPSA39393` | `PPSA` plus five digits; must be unique on the console |
+| `REIPAN_PS5_CONCEPT_ID` | `39393` | Five digits |
+| `REIPAN_PS5_CONTENT_SUFFIX` | `REIPANPROSPERO01` | 16 characters `A-Z` or `0-9` |
+| `REIPAN_PS5_TITLE_NAME` | `ReiPan PS5` | Name on the home screen |
+| `REIPAN_PS5_BACKGROUND` | (none) | A 16:9 picture (PNG or JPEG) for the home screen and launch screen; converted to `sce_sys/pic0.dds` and `pic1.dds` (3840x2160 BC7). Needs Python with numpy and Pillow. Use art you may redistribute if you share the title folder |
+| `REIPAN_PS5_LAUNCH_BACKGROUND` | the background | A different picture for the launch screen |
+| `REIPAN_PS5_BUILD_LABEL` | `ReiPanPS5-dev` | Build name in the start-up notification and the log |
+
+A PS5 release is made with **Actions → PS5 Release**, which creates a draft
+release `ps5-v<version>` from `release-notes/ps5-v<version>.md`; attach the
+zipped title folder to it, then publish it.
+
+See `ps5/NOTICE.md` for where the PS5 support files come from.
+
 ## PS2 save transfer
 
 Open **Settings → PS2 save transfer…** to transfer European, US or Japanese

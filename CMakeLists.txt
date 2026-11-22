@@ -24,6 +24,10 @@ set(BUILD_SHARED_LIBS OFF)
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/ReiPan)
 
+# PlayStation 5 homebrew: dependency options for the ps5-payload-sdk toolchain
+# (see "PlayStation 5" in the README).
+include(ps5)
+
 include(sdl3)
 include(spdlog)
 include(cglm)
@@ -163,7 +167,10 @@ set(REIPAN_PREFIX_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/sdk/pc_prefix.h")
 if(MSVC)
     target_compile_options(ReiPan PRIVATE "/FI${REIPAN_PREFIX_HEADER}")
 else()
-    target_compile_options(ReiPan PRIVATE -include "${REIPAN_PREFIX_HEADER}")
+    # (C++ only: the PS5 build adds the console's own C files)
+    target_compile_options(ReiPan PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:-include>"
+        "$<$<COMPILE_LANGUAGE:CXX>:${REIPAN_PREFIX_HEADER}>")
 endif()
 
 # ---- aliasing ------------------------------------------------------------
@@ -194,5 +201,9 @@ if(MSVC)
         /Zc:preprocessor
     )
 else()
-    target_compile_options(ReiPan PRIVATE -w -fpermissive)
+    target_compile_options(ReiPan PRIVATE -w $<$<COMPILE_LANGUAGE:CXX>:-fpermissive>)
+endif()
+
+if(PS5)
+    reipan_ps5_title(ReiPan)
 endif()

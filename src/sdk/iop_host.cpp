@@ -59,6 +59,7 @@ extern "C" __declspec(dllimport) size_t __stdcall VirtualQuery(
 
 #include <SDL3/SDL_mutex.h>
 #include <SDL3/SDL_thread.h>
+#include "reipan/os/reipan_thread.h"
 #include <SDL3/SDL_timer.h>
 
 #include <stdlib.h>
@@ -391,7 +392,7 @@ int ReiPan_IopStartThread(int thid, void *arg)
 
     IopLock();
     th->exited = 0;
-    th->thread = SDL_CreateThread(IopThreadMain, "iop", th);
+    th->thread = ReiPan_SdlThreadCreate(IopThreadMain, "iop", th);
     th->starting = 0;
     if (th->thread == NULL)
     {
@@ -719,7 +720,7 @@ int ReiPan_IopStartHardTimer(int timer_id)
         return -1;
 
     timer->running = 1;
-    timer->thread  = SDL_CreateThread(IopTimerMain, "iop-timer", timer);
+    timer->thread  = ReiPan_SdlThreadCreate(IopTimerMain, "iop-timer", timer);
 
     return timer->thread != NULL ? 0 : -1;
 }
@@ -993,8 +994,10 @@ static void IopLowPoolInit(void)
         }
     }
 
-    printf("iop: WARNING no free memory below 16MB for the EE->IOP heap --"
-           " movie audio will stall and the movie will show no picture\n");
+    /* No longer fatal: audiodec.c masks the play offset, not the address, so
+     * the ring plays from the main arena too. */
+    printf("iop: no free memory below 16MB for the EE->IOP heap; it uses the"
+           " main arena\n");
 }
 
 #if defined(__GNUC__)
@@ -1092,11 +1095,9 @@ void *ReiPan_IopAllocIopHeap(int size)
 
     IopUnlock();
 
-    /* Falling back to the main arena keeps the movie playing rather than
-     * hanging iopalloc(), but if the arena is high the 24-bit mask will stop
-     * the audio pump -- so say so instead of failing quietly. */
-    printf("iop: EE->IOP heap exhausted (%d bytes); falling back to the main"
-           " arena -- movie audio may stall\n", size);
+    /* The main arena serves it too: audiodec.c masks the play offset rather
+     * than the address, so the ring need not be low. */
+    printf("iop: EE->IOP heap from the main arena (%d bytes)\n", size);
 
     return ReiPan_IopAllocSysMemory(1, size, NULL);
 }

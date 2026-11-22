@@ -49,6 +49,11 @@ typedef struct                      /* 0x15c */
      * buffer instead of freeing it -- see the note on StreamAbort() below.
      * Takes a spare bit of the ROM's own bitfield word, so 0x15c stands. */
     /* 0x000:13 */ unsigned int abandoned : 1;
+    /* PORT: not in the ROM either.  Set once this stream's voice thread has
+     * been launched (StartStreamThread() in iop_stream.c), so a stop knows to
+     * wake it rather than launch it -- `voice_th` is only set once the thread
+     * body runs.  Another spare bit; 0x15c still stands. */
+    /* 0x000:14 */ unsigned int voice_launched : 1;
     /* 0x004 */ int          offset_sector;
     /* 0x008 */ int          read_th_idx;
     /* 0x00c */ int          voice_th_idx;

@@ -180,7 +180,7 @@ static int thTransMem(LOAD_IOP_WRK *rim, FILE_LOAD_TYPE type)
             /* SPU transfers go through whichever core is free, and the
              * completion interrupt releases it again. */
             trans_spu_core = WaitSpuTransSema();
-            sceSdSetTransIntrHandler(trans_spu_core, _intr_SignalTransCore, 0);
+            sceSdSetTransIntrHandler(trans_spu_core, (void *)_intr_SignalTransCore, 0);
 
             while (sceSdVoiceTrans((short)trans_spu_core, 0, (unsigned char *)iop_buf,
                                    rim->adrs + offset, size) < 0)

@@ -117,7 +117,11 @@ void audioDecPause(AudioDec *ad)
     changeInputVolume(0);
 
     ret = sceSdRemote(1, SDR_BLOCK_TRANS, AUTODMA_CH, SD_BLOCK_TRANS_STAT, 0, 0);
-    ad->iopPausePos = (ret & 0xffffff) - ad->iopBuff;
+    // PC: the 24-bit mask is taken of the offset, not of the address: the same
+    // on the PS2, where every IOP address is under 2 MB, and right wherever the
+    // host put the ring (iop_host.cpp's low pool cannot always be had -- never
+    // on the PS5).
+    ad->iopPausePos = (ret - ad->iopBuff) & 0xffffff;
 
     sceSdRemote(1, SDR_VOICE_TRANS, AUTODMA_CH, 0,
                 ad->iopZero, AUDIODEC_ZERO_SPU_ADRS, ad->iopZeroSize);
@@ -267,7 +271,8 @@ int audioDecSendToIOP(AudioDec *ad)
 
     case 2:
     {
-        int pos = (sceSdRemote(1, SDR_BLOCK_TRANS_STATUS, AUTODMA_CH) & 0xffffff) - ad->iopBuff;
+        // PC: the offset masked, not the address (see audioDecPause).
+        int pos = (sceSdRemote(1, SDR_BLOCK_TRANS_STATUS, AUTODMA_CH) - ad->iopBuff) & 0xffffff;
 
         iopGetArea(&pd0, &d0, &pd1, &d1, ad, pos);
         break;

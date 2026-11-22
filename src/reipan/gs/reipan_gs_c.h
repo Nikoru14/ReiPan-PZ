@@ -9,6 +9,9 @@ extern "C" {
 #endif
 
 void ReiPan_GsClear(void);
+/* Image transfers written in parallel bands, and on the calling thread, since
+ * the last call (reipan_gs_upload.inc). */
+void ReiPan_GsUploadSplitStats(unsigned *split, unsigned *inline_count);
 void ReiPan_GsUpload(sceGsLoadImage *image_load, unsigned char *image);
 /* While non-zero, ReiPan_GsUpload() drops what it is handed -- nothing is
  * written, invalidated or counted.  Set only around a model's own texture

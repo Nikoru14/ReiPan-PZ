@@ -1,6 +1,7 @@
 #include "reipan_renderer.h"
 #include "reipan_font_textures.h"
 #include "reipan/os/reipan_host.h"
+#include "reipan/reipan_ps5.h"
 
 #include "../gs/reipan_gs.h"
 #include "../io/reipan_file.h"
@@ -3027,6 +3028,15 @@ bool GradeIsIdentity()
  */
 bool NeedsPresentPass()
 {
+#ifdef __PROSPERO__
+    /* PS5: always.  SDL_GPU's Vulkan swapchain images are colour targets and
+     * copy destinations only -- not sampled, not copied or blitted from -- and
+     * the frame is read back by the room glow (sampled), the GS captures
+     * (blitted) and the pause capture (copied).  Desktop drivers let that by;
+     * RADV on the console read a garbage image view and faulted.  Drawn into
+     * the output texture instead, the frame is an ordinary texture. */
+    return true;
+#endif
     return HdrCompositionIsHdr(g_hdr_composition) || !GradeIsIdentity() ||
            (g_output_format != SDL_GPU_TEXTUREFORMAT_INVALID &&
             g_output_format != g_swapchain_format);
@@ -4088,6 +4098,10 @@ void PumpEvents()
 
         if (event.type == SDL_EVENT_QUIT)
         {
+#ifdef __PROSPERO__
+            /* (a title that calls exit() gets a crash dialog) */
+            ReiPan_Ps5Exit(0);
+#endif
             std::exit(0);
         }
 
@@ -9547,6 +9561,10 @@ void CreateWindowAndDevice(void *ok)
     if (g_device == nullptr)
     {
         LogSdlError("SDL_CreateGPUDevice");
+#ifdef __PROSPERO__
+        ReiPan_Ps5Notify("ReiPan could not start the GPU: %s", SDL_GetError());
+        ReiPan_Ps5VulkanReport();
+#endif
         return;
     }
 
@@ -11333,6 +11351,39 @@ void UpdatePerformanceStats(bool presented)
     stats.font_texture_creates = g_font_texture_creates;
     stats.font_texture_invalidations = g_font_texture_invalidations;
     ReiPanUi::SetPerformanceStats(stats);
+#ifdef __PROSPERO__
+    /* PS5: where the frame goes, every five seconds, in the log -- the
+     * overlay's profiler needs the controller and a screenshot. */
+    {
+        static int windows = 0;
+        if (++windows >= 5)
+        {
+            windows = 0;
+            const ReiPanProfilerStats &p = stats.profiler;
+            SDL_Log("PS5 perf: game %.1f fps, presents %.1f fps | frame %.1f ms "
+                    "(max %.1f) workload %.1f game cpu %.1f (max %.1f) vblank wait %.1f",
+                    stats.game_fps, stats.present_fps, p.frame_ms, p.frame_max_ms,
+                    p.workload_ms, p.game_cpu_ms, p.game_cpu_max_ms, p.vblank_wait_ms);
+            SDL_Log("PS5 perf: sgd %.1f mesh %.1f (light %.1f skin %.1f) billboard %.1f "
+                    "sky %.1f mapput %.1f+%.1f gs upload %.1f tex miss %.1f",
+                    p.sgd_cpu_ms, p.mesh_cpu_ms, p.mesh_lighting_ms, p.mesh_skinning_ms,
+                    p.billboard_cpu_ms, p.sky_cpu_ms, p.mapput_sort_ms,
+                    p.mapput_callback_ms, p.gs_upload_ms, p.texture_miss_ms);
+            SDL_Log("PS5 perf: renderer %.1f ms (max %.1f): upload %.1f record %.1f "
+                    "acquire %.1f (max %.1f) submit %.1f, gpu idle wait %.1f x%d | "
+                    "%zu draws, %d mesh tris",
+                    p.renderer_ms, p.renderer_max_ms, p.renderer_upload_ms,
+                    p.renderer_record_ms, p.renderer_acquire_ms, p.renderer_acquire_max_ms,
+                    p.renderer_submit_ms, p.gpu_idle_wait_ms, p.gpu_idle_waits,
+                    stats.draw_count, stats.mesh_triangles_submitted);
+            unsigned split = 0, inline_count = 0;
+            ReiPan_GsUploadSplitStats(&split, &inline_count);
+            SDL_Log("PS5 perf: gs transfers over 5 s: %u in parallel bands, %u on the game thread",
+                    split, inline_count);
+            ReiPan_Ps5ThreadReport("game");
+        }
+    }
+#endif
 
     g_fps_window_start_counter = now;
     g_fps_game_frames = 0;

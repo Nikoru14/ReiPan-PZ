@@ -1,0 +1,47 @@
+name: PS5 Release
+
+# Create the tag ps5-v<version> on the commit this runs on and a release
+# titled "ReiPan PS5 v<version>" with release-notes/ps5-v<version>.md as its
+# description. The PS5 title is built locally (it needs PS5_Vulkan's RADV and
+# LLVM 22, see "PlayStation 5" in the README), so the release starts as a
+# draft: attach the title's zip to it, then publish it.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, e.g. 0.1.0-PZ (tag ps5-v<version>)'
+        required: true
+      draft:
+        description: 'Create it as a draft (attach the zip, then publish)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          tag="ps5-v${VERSION}"
+          notes="release-notes/${tag}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::No $notes on this branch."
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::Release $tag already exists."
+            exit 1
+          fi
+          draft=()
+          [ "$DRAFT" = "true" ] && draft=(--draft)
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "ReiPan PS5 v${VERSION}" --notes-file "$notes" "${draft[@]}"

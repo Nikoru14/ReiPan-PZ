@@ -1,9 +1,13 @@
 #include "reipan_gs.h"
 #include "reipan_gs_c.h"
 #include "../reipan_profiler.h"
+#include "../os/reipan_thread.h"
+
+#include <SDL3/SDL_thread.h>
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -259,6 +263,36 @@ static int GetPixelAddressPSMT4(int block, int width, int x, int y)
            (GetBlockIdPSMT4(block & 0x1f, x & 0x7f, y & 0x7f) << 9) +
            column;
 }
+
+/* The image-transfer writer (reipan_gs_upload.inc): its workers are SDL
+ * threads, four on the PS5, where the game thread is the frame's bottleneck;
+ * none elsewhere unless REIPAN_GS_UPLOAD_THREADS asks. */
+static int GsUploadWorkers()
+{
+    const char *env = std::getenv("REIPAN_GS_UPLOAD_THREADS");
+    if (env != nullptr && env[0] != '\0')
+    {
+        return std::clamp(std::atoi(env), 0, 8);
+    }
+#ifdef __PROSPERO__
+    return 4;
+#else
+    return 0;
+#endif
+}
+
+static bool GsSpawnWorker(int (*fn)(void *), void *arg)
+{
+    SDL_Thread *thread = ReiPan_SdlThreadCreate(fn, "gs-upload", arg);
+    if (thread == nullptr)
+    {
+        return false;
+    }
+    SDL_DetachThread(thread);
+    return true;
+}
+
+#include "reipan_gs_upload.inc"
 
 static int GetTex0BufferWidth(const sceGsTex0 *tex0)
 {
@@ -597,115 +631,39 @@ GSHelper::GSHelper() : mem_(kGsVramSize)
 void GSHelper::UploadPSMCT32(int dbp, int dbw, int dsax, int dsay, int rrw,
                              int rrh, const uint8_t *inbuf)
 {
-    int src_addr = 0;
-    for (int y = dsay; y < dsay + rrh; ++y)
-    {
-        for (int x = dsax; x < dsax + rrw; ++x)
-        {
-            const int addr = GetPixelAddressPSMCT32(dbp, dbw, x, y);
-            WriteGsByte(addr + 0, inbuf[src_addr + 0]);
-            WriteGsByte(addr + 1, inbuf[src_addr + 1]);
-            WriteGsByte(addr + 2, inbuf[src_addr + 2]);
-            WriteGsByte(addr + 3, inbuf[src_addr + 3]);
-            src_addr += 4;
-        }
-    }
+    GsRunUpload(GsUploadJob{kGsUpload32, dbp, dbw, dsax, dsay, rrw, rrh, inbuf,
+                            mem_.data(), mem_.size()});
 }
 
 void GSHelper::UploadPSMCT24(int dbp, int dbw, int dsax, int dsay, int rrw,
                              int rrh, const uint8_t *inbuf)
 {
-    int src_addr = 0;
-    for (int y = dsay; y < dsay + rrh; ++y)
-    {
-        for (int x = dsax; x < dsax + rrw; ++x)
-        {
-            const int addr = GetPixelAddressPSMCT32(dbp, dbw, x, y);
-            WriteGsByte(addr + 0, inbuf[src_addr + 0]);
-            WriteGsByte(addr + 1, inbuf[src_addr + 1]);
-            WriteGsByte(addr + 2, inbuf[src_addr + 2]);
-            src_addr += 3;
-        }
-    }
+    GsRunUpload(GsUploadJob{kGsUpload24, dbp, dbw, dsax, dsay, rrw, rrh, inbuf,
+                            mem_.data(), mem_.size()});
 }
 
 void GSHelper::UploadPSMCT16(int dbp, int dbw, int dsax, int dsay, int rrw,
                              int rrh, const uint8_t *inbuf)
 {
-    int src_addr = 0;
-    for (int y = dsay; y < dsay + rrh; ++y)
-    {
-        for (int x = dsax; x < dsax + rrw; ++x)
-        {
-            const int addr = GetPixelAddressPSMCT16(dbp, dbw, x, y);
-            WriteGsByte(addr + 0, inbuf[src_addr + 0]);
-            WriteGsByte(addr + 1, inbuf[src_addr + 1]);
-            src_addr += 2;
-        }
-    }
+    GsRunUpload(GsUploadJob{kGsUpload16, dbp, dbw, dsax, dsay, rrw, rrh, inbuf,
+                            mem_.data(), mem_.size()});
 }
 
 void GSHelper::UploadPSMT8(int dbp, int dbw, int dsax, int dsay, int rrw,
                            int rrh, const uint8_t *inbuf, int psm)
 {
-    int src_addr = 0;
-    for (int y = dsay; y < dsay + rrh; ++y)
-    {
-        for (int x = dsax; x < dsax + rrw; ++x)
-        {
-            if (psm == PSMT8H)
-            {
-                // PSMT8H stores the index in the top byte of the PSMCT32 word.
-                WriteGsByte(GetPixelAddressPSMCT32(dbp, dbw, x, y) + 3,
-                            inbuf[src_addr++]);
-            }
-            else
-            {
-                WriteGsByte(GetPixelAddressPSMT8(dbp, dbw, x, y), inbuf[src_addr++]);
-            }
-        }
-    }
+    GsRunUpload(GsUploadJob{psm == PSMT8H ? kGsUpload8H : kGsUpload8, dbp, dbw, dsax,
+                            dsay, rrw, rrh, inbuf, mem_.data(), mem_.size()});
 }
 
 void GSHelper::UploadPSMT4(int dbp, int dbw, int dsax, int dsay, int rrw,
                            int rrh, const uint8_t *inbuf, int psm)
 {
-    int src_addr = 0;
-    for (int y = dsay; y < dsay + rrh; ++y)
-    {
-        for (int x = dsax; x < dsax + rrw; ++x)
-        {
-            const int src_nibble =
-                (inbuf[src_addr >> 1] >> ((src_addr & 1) << 2)) & 0x0f;
-            if (psm == PSMT4HL || psm == PSMT4HH)
-            {
-                // "High" 4-bit formats pack into the top byte of the PSMCT32
-                // word at this texel — bits 24..27 (HL) or 28..31 (HH) — so
-                // the download reads back the same nibble.  Must match
-                // DownloadImagePSMT4's PSMT4HL/HH branch.
-                const int p32 = GetPixelAddressPSMCT32(dbp, dbw, x, y) + 3;
-                const unsigned char old = ReadGsByte(p32);
-                if (psm == PSMT4HL)
-                {
-                    WriteGsByte(p32, (unsigned char)((old & 0xf0) | src_nibble));
-                }
-                else
-                {
-                    WriteGsByte(p32, (unsigned char)((old & 0x0f) | (src_nibble << 4)));
-                }
-            }
-            else
-            {
-                const int addr = GetPixelAddressPSMT4(dbp, dbw, x, y);
-                const int dst_shift = (addr & 1) << 2;
-                const int dst_addr = addr >> 1;
-                const unsigned char old = ReadGsByte(dst_addr);
-                WriteGsByte(dst_addr, (unsigned char)((src_nibble << dst_shift) |
-                                                      (old & (0xf0 >> dst_shift))));
-            }
-            src_addr++;
-        }
-    }
+    const GsUploadKind kind = psm == PSMT4HL   ? kGsUpload4HL
+                              : psm == PSMT4HH ? kGsUpload4HH
+                                               : kGsUpload4;
+    GsRunUpload(GsUploadJob{kind, dbp, dbw, dsax, dsay, rrw, rrh, inbuf, mem_.data(),
+                            mem_.size()});
 }
 
 void GSHelper::DownloadPSMCT32(unsigned char *outbuf, int dbp, int dbw,
@@ -1157,6 +1115,18 @@ bool UploadCoverage::Covers(const sceGsTex0 &tex0) const
 }
 
 extern "C" {
+
+void ReiPan_GsUploadSplitStats(unsigned *split, unsigned *inline_count)
+{
+    if (split != nullptr)
+    {
+        *split = g_gs_uploads_split.exchange(0, std::memory_order_relaxed);
+    }
+    if (inline_count != nullptr)
+    {
+        *inline_count = g_gs_uploads_inline.exchange(0, std::memory_order_relaxed);
+    }
+}
 
 void ReiPan_GsClear(void)
 {

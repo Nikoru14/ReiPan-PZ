@@ -368,7 +368,7 @@ static void PCMStreamReadThread(void)
             first_read = 0;
 
             /* From here the DMA completion interrupt paces the loop. */
-            sceSdSetTransIntrHandler(stp->trans_core, _intr_SignalSema,
+            sceSdSetTransIntrHandler(stp->trans_core, (void *)_intr_SignalSema,
                                      &stp->block_trans_sema);
             sceSdBlockTrans(stp->trans_core, SD_BLOCK_TRANS_LOOP,
                             (unsigned char *)stp->rb_top, stp->rb_size << 7, 0);

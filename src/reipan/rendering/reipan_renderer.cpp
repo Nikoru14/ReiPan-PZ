@@ -8511,6 +8511,10 @@ constexpr float kGeometryMaxTickJump = 200.0f;
  * draw of a few texels' size is not judged on rounding. */
 constexpr float kGeometryMaxIncoherence = 0.35f;
 constexpr float kGeometryMinIncoherence = 0.25f;
+/* The furthest, on average, a streamed draw's vertices may be from its
+ * partner's over one tick, as a share of the draw's size, before the pairing
+ * is taken for a different object (PairGeometryDraws()). */
+constexpr float kGeometryMaxPairMove = 0.6f;
 
 bool ModelJumped(const float *from, const float *to)
 {
@@ -8570,6 +8574,9 @@ void InvalidateGeometrySnapshot()
  * room's merged units folding differently -- and it bounds the work at a few
  * tens of thousands of key compares a tick. */
 constexpr size_t kGeometryPairWindow = 64;
+/* And how far behind the expected place: a run the game drew in another
+ * order this tick puts the partner just before it. */
+constexpr size_t kGeometryPairBehind = 16;
 
 float ModelTranslationDistance2(const float *a, const float *b)
 {
@@ -8646,21 +8653,30 @@ bool ResidentKeyLess(const GeometrySnapshotDraw &a, const GeometrySnapshotDraw &
     return a.key.flags < b.key.flags;
 }
 
-/* How far apart two like-shaped streamed draws are, vertex for vertex: the
- * sum of squared distances between vertex k of one and vertex k of the other,
- * or a negative value when either span is not all inside its snapshot. */
-double StreamedDrawDistance(const GeometryDrawKey &curr_key,
-                            const GeometryDrawKey &prev_key)
+/*
+ * What pairing streamed draw `curr` of this frame with `prev` of the last would
+ * cost the blend: the mean squared distance between vertex k of one and vertex
+ * k of the other, each placed by its own draw's model translation, and the
+ * span of `curr` (the diagonal of its box) that the cost is judged against.
+ * False when either span is not all inside its snapshot.
+ */
+bool StreamedPairCost(const GeometrySnapshotDraw &curr,
+                      const GeometrySnapshotDraw &prev, double *cost,
+                      float *extent)
 {
-    const size_t count = curr_key.vertex_count;
-    const size_t curr_first = curr_key.first_vertex;
-    const size_t prev_first = prev_key.first_vertex;
-    if (count == 0 || count != prev_key.vertex_count ||
+    const size_t count = curr.key.vertex_count;
+    const size_t curr_first = curr.key.first_vertex;
+    const size_t prev_first = prev.key.first_vertex;
+    if (count == 0 || count != prev.key.vertex_count ||
         (curr_first + count) * 4u > g_geo_curr_positions.size() ||
         (prev_first + count) * 4u > g_geo_prev_positions.size())
     {
-        return -1.0;
+        return false;
     }
+    float lo[3] = {std::numeric_limits<float>::infinity(),
+                   std::numeric_limits<float>::infinity(),
+                   std::numeric_limits<float>::infinity()};
+    float hi[3] = {-lo[0], -lo[1], -lo[2]};
     double sum = 0.0;
     for (size_t k = 0; k < count; k++)
     {
@@ -8668,59 +8684,20 @@ double StreamedDrawDistance(const GeometryDrawKey &curr_key,
         const float *b = &g_geo_prev_positions[(prev_first + k) * 4u];
         for (int c = 0; c < 3; c++)
         {
-            const double d = (double)a[c] - (double)b[c];
+            const double d = ((double)a[c] + curr.model[12 + c]) -
+                             ((double)b[c] + prev.model[12 + c]);
             sum += d * d;
+            lo[c] = std::min(lo[c], a[c]);
+            hi[c] = std::max(hi[c], a[c]);
         }
     }
-    return sum;
-}
-
-/*
- * A run of like-shaped streamed draws (her two legs, a row of curtain panels)
- * pairs by how far apart the draws are, vertex for vertex -- exactly the error
- * the blend would make -- not by place in the run.  The game draws such a run
- * in whatever order its sort gave that frame, so pairing in order blended the
- * left leg from the right one when they swapped.  Greedy, which for pieces
- * this far apart is the right answer.  Returns false (pair them in order) when
- * a distance cannot be had.
- */
-bool PairStreamedRunByPosition(size_t curr_first, size_t prev_first, size_t run,
-                               const std::vector<uint32_t> &streamed)
-{
-    constexpr size_t kMaxRun = 32;   /* legs, curtain panels */
-    if (run < 2 || run > kMaxRun)
+    float extent2 = 0.0f;
+    for (int c = 0; c < 3; c++)
     {
-        return false;
+        extent2 += (hi[c] - lo[c]) * (hi[c] - lo[c]);
     }
-    double distance[kMaxRun][kMaxRun];
-    for (size_t k = 0; k < run; k++)
-    {
-        for (size_t m = 0; m < run; m++)
-        {
-            distance[k][m] =
-                StreamedDrawDistance(g_geo_curr_draws[curr_first + k].key,
-                                     g_geo_prev_draws[streamed[prev_first + m]].key);
-            if (distance[k][m] < 0.0)
-            {
-                return false;
-            }
-        }
-    }
-    bool taken[kMaxRun] = {};
-    for (size_t k = 0; k < run; k++)
-    {
-        size_t best = run;
-        for (size_t m = 0; m < run; m++)
-        {
-            if (!taken[m] && (best == run || distance[k][m] < distance[k][best]))
-            {
-                best = m;
-            }
-        }
-        taken[best] = true;
-        g_geo_pairs[curr_first + k] = (int32_t)streamed[prev_first + best];
-        g_geo_paired++;
-    }
+    *cost = sum / (double)count;
+    *extent = std::sqrt(extent2);
     return true;
 }
 
@@ -8753,63 +8730,65 @@ void PairGeometryDraws()
         return;
     }
 
+    /*
+     * Streamed draws pair with the closest like-shaped draw of last frame,
+     * vertex for vertex -- not the first one found.  Shape alone does not tell
+     * a draw from its neighbours: her two legs, a row of curtain panels, the
+     * light falling through each half of a window.  Taking the first in order
+     * paired them crosswise whenever the game's sort changed their order, and
+     * the extra frame drew each one halfway to another: a leg vanishing, a
+     * bright slab across the curtain.  The look stays bounded around where the
+     * order says the partner should be, and a pair whose closest candidate is
+     * still further away than kGeometryMaxPairMove of the draw's own size is
+     * left unblended -- the draw came, went or changed, and has no partner.
+     */
     size_t next = 0;
-    for (size_t i = 0; i < curr.size() && next < streamed.size(); i++)
+    for (size_t i = 0; i < curr.size(); i++)
     {
         if (!GeometryDrawIsEligible(g_draws[i]) || curr[i].key.mesh != nullptr)
         {
             continue;
         }
-        const size_t end =
-            std::min(streamed.size(), next + kGeometryPairWindow);
+        const size_t begin = next > kGeometryPairBehind ? next - kGeometryPairBehind : 0;
+        const size_t end = std::min(streamed.size(), next + kGeometryPairWindow);
         size_t found = end;
-        for (size_t k = next; k < end; k++)
+        double found_cost = 0.0;
+        float found_extent = 0.0f;
+        for (size_t k = begin; k < end; k++)
         {
-            if (prev[streamed[k]].key.SameShape(curr[i].key))
+            const GeometrySnapshotDraw &candidate = prev[streamed[k]];
+            if (taken[streamed[k]] || !candidate.key.SameShape(curr[i].key))
+            {
+                continue;
+            }
+            double cost = 0.0;
+            float extent = 0.0f;
+            if (!StreamedPairCost(curr[i], candidate, &cost, &extent))
+            {
+                continue;
+            }
+            if (found == end || cost < found_cost)
             {
                 found = k;
-                break;
+                found_cost = cost;
+                found_extent = extent;
             }
         }
         if (found == end)
         {
             continue;
         }
-
-        /* A run of like-shaped draws back to back (the two legs) pairs in
-         * order only while it is as long as last frame's.  When one member
-         * came or went there is no telling which, so the whole run goes
-         * unblended this tick rather than shifted by one. */
-        size_t curr_run = 1;
-        while (i + curr_run < curr.size() &&
-               curr[i + curr_run].key.mesh == nullptr &&
-               GeometryDrawIsEligible(g_draws[i + curr_run]) &&
-               curr[i + curr_run].key.SameShape(curr[i].key))
+        const double limit =
+            std::max((double)kGeometryMaxPairMove * found_extent,
+                     (double)kGeometryMinIncoherence);
+        if (!(found_cost <= limit * limit))
         {
-            curr_run++;
-        }
-        size_t prev_run = 1;
-        while (found + prev_run < streamed.size() &&
-               prev[streamed[found + prev_run]].key.SameShape(curr[i].key))
-        {
-            prev_run++;
-        }
-        if (curr_run != prev_run)
-        {
-            i += curr_run - 1;
-            next = found + prev_run;
             continue;
         }
-        if (PairStreamedRunByPosition(i, found, curr_run, streamed))
-        {
-            i += curr_run - 1;
-            next = found + prev_run;
-            continue;
-        }
-
+        taken[streamed[found]] = 1;
         g_geo_pairs[i] = (int32_t)streamed[found];
         g_geo_paired++;
-        next = found + 1;
+        next = std::max(next, found + 1);
     }
 
     std::sort(resident.begin(), resident.end(), [&prev](uint32_t a, uint32_t b) {

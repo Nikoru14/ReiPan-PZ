@@ -1112,6 +1112,12 @@ int  ReiPan_RendererGetResidentTextures(void);
 void ReiPan_RendererCountTextureCapture(void);
 void ReiPan_RendererCountSkippedTextureUpload(void);
 void ReiPan_RendererCountTextureReplay(void);
+/* Names what the next ReiPan_RendererBeginMeshStream() draws -- the SGD unit
+ * it decodes, the same address every tick while the model is loaded -- so the
+ * extra frames can blend that draw with its own last tick rather than guess
+ * at its partner.  Taken by the next stream begun, whether or not it starts;
+ * NULL (the default) leaves the stream unnamed. */
+void ReiPan_RendererSetNextMeshStreamSource(const void *source);
 void ReiPan_RendererAppendMeshTriangle(
     unsigned int stream,
     const ReiPanMeshVertexInput vertices[3]);

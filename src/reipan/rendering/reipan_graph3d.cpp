@@ -377,9 +377,11 @@ public:
     MeshStreamScope(const sceGsTex0 *tex0, int max_vertices,
                     const float *local_world,
                     const ReiPanLightState *fragment_lights = nullptr,
-                    const void *texture = nullptr)
-        : token_(ReiPan_RendererBeginMeshStream(
-              tex0, max_vertices, local_world, fragment_lights, texture))
+                    const void *texture = nullptr,
+                    const void *source = nullptr)
+        : token_((ReiPan_RendererSetNextMeshStreamSource(source),
+                  ReiPan_RendererBeginMeshStream(
+                      tex0, max_vertices, local_world, fragment_lights, texture)))
     {
     }
 
@@ -590,7 +592,8 @@ void DrawIndexedFallback(const sceGsTex0 *tex0,
                          const std::vector<unsigned int> &indices,
                          const float *local_world,
                          const ReiPanLightState *fragment_lights,
-                         const void *texture = nullptr)
+                         const void *texture = nullptr,
+                         const void *source = nullptr)
 {
     const size_t vertex_count = positions.size() / 3;
     if (positions.size() != vertex_count * 3 ||
@@ -613,7 +616,7 @@ void DrawIndexedFallback(const sceGsTex0 *tex0,
     }
 
     MeshStreamScope stream(tex0, (int)indices.size(), local_world,
-                           fragment_lights, texture);
+                           fragment_lights, texture, source);
     if (!stream)
     {
         return;
@@ -3059,7 +3062,7 @@ void ReiPan_Graph3dDrawPresetMesh(SGDFILEHEADER *owner,
     DrawIndexedFallback(tex0, positions, normals, uv, rgba, indices,
                         local_world,
                         fragment_lighting ? &fragment_lights : nullptr,
-                        bound_texture);
+                        bound_texture, mesh);
 }
 
 void DrawRuntimeMesh(SGDFILEHEADER *owner,
@@ -3156,7 +3159,7 @@ void DrawRuntimeMesh(SGDFILEHEADER *owner,
          * fallbacks pay the old per-vertex CPU cost. */
         build_cpu_colors();
         MeshStreamScope stream(tex0, stream_capacity, local_world,
-                               fragment_lights_p, bound_texture);
+                               fragment_lights_p, bound_texture, mesh);
         if (!stream)
         {
             return;

@@ -492,6 +492,13 @@ struct DrawCommand
      */
     bool shadow_caster = false;
     bool shadow_receiver = false;
+    /* A streamed mesh that lost triangles to the clip (the camera inside or
+     * against it): its vertices are a different subset each tick, so the
+     * extra frames cannot pair it vertex for vertex (PairGeometryDraws()). */
+    bool clipped = false;
+    /* What the stream drew, as ReiPan_RendererSetNextMeshStreamSource() named
+     * it; NULL when unnamed. */
+    const void *stream_source = nullptr;
 
     /*
      * The viewfinder surround, queued by ReiPan_RendererDrawFinderMask().  A
@@ -1279,6 +1286,11 @@ struct GeometrySnapshotDraw
 {
     GeometryDrawKey key;
     float model[16];
+    bool clipped;
+    /* The streamed draw's source (DrawCommand::stream_source), and which of
+     * this frame's draws of that source it is, counting from 0. */
+    const void *source;
+    uint32_t occurrence;
 };
 
 /* The previous logical frame, and the one being presented.  Swapped at the end
@@ -1293,6 +1305,15 @@ std::vector<float> g_geo_prev_positions;
 std::vector<float> g_geo_curr_positions;
 /* Per current draw, its corresponding previous draw, or -1. */
 std::vector<int32_t> g_geo_pairs;
+/* Per current draw, for a streamed draw that found no partner: the motion
+ * over the tick of the paired vertices around it, which it borrows as one
+ * piece (BorrowGeometryMotion()); `valid` false when there is none. */
+struct GeometryBorrowedMotion
+{
+    bool valid;
+    float move[3];
+};
+std::vector<GeometryBorrowedMotion> g_geo_borrowed;
 size_t g_geo_paired;
 /* This frame's snapshot is complete and may become the next frame's previous. */
 bool g_geo_snapshot_valid;
@@ -8505,6 +8526,37 @@ void ApplyOriginalAspectToVertices()
  * there is no point paying for one when the field budget leaves no room for an
  * in-between to spend it on. */
 constexpr float kGeometryMaxTickJump = 200.0f;
+/* How far a vertex may stray from its draw's average motion over one tick, as
+ * a share of the draw's size, before the draw is taken for a mispairing and
+ * not blended (ApplyGeometryVertexBlend()); and a floor in world units, so a
+ * draw of a few texels' size is not judged on rounding. */
+constexpr float kGeometryMaxIncoherence = 0.35f;
+constexpr float kGeometryMinIncoherence = 1.0f;
+/* The furthest, on average, a streamed draw's vertices may be from its
+ * partner's over one tick, as a share of the draw's size, before the pairing
+ * is taken for a different object (PairGeometryDraws()). */
+constexpr float kGeometryMaxPairMove = 0.6f;
+/* Never less than this in world units, though (Rei is about 27 tall): a small
+ * piece of her -- an eyelid, the seam at an elbow -- moves with her whole body,
+ * further in a tick than its own size when she runs, and judged by size alone
+ * it went unpaired, drawn a tick ahead of the face or arm it sits on. */
+constexpr float kGeometryMinPairMove = 12.0f;
+/* How much closer, in mean squared distance, another candidate must be before
+ * it is taken over the draw order's own (4: half the distance), and a slack in
+ * squared world units so near-equal tiny costs do not flip. */
+constexpr double kGeometryPairSwitch = 4.0;
+constexpr double kGeometryPairSwitchSlack = 0.25;
+/* And never while the order's own partner is within 3 world units on average
+ * (9, squared): her face turning with her head moves each patch about as far
+ * as the next one, and the switch took the neighbour; a crossed leg or a
+ * curtain's other light band is further than that. */
+constexpr double kGeometryPairSwitchMinCost = 9.0;
+/* How far, centre to centre, an unpaired streamed draw looks for a paired one
+ * to borrow its motion from (BorrowGeometryMotion()). */
+constexpr float kGeometryBorrowRadius = 20.0f;
+/* The cell of the motion grid unpaired draws read their surroundings' motion
+ * from, in world units. */
+constexpr float kGeometryBorrowCell = 2.5f;
 
 bool ModelJumped(const float *from, const float *to)
 {
@@ -8553,6 +8605,7 @@ bool GeometryDrawIsEligible(const DrawCommand &draw)
 void InvalidateGeometrySnapshot()
 {
     g_geo_pairs.clear();
+    g_geo_borrowed.clear();
     g_geo_paired = 0;
     g_geo_snapshot_valid = false;
     g_geo_vertices_valid = false;
@@ -8564,6 +8617,9 @@ void InvalidateGeometrySnapshot()
  * room's merged units folding differently -- and it bounds the work at a few
  * tens of thousands of key compares a tick. */
 constexpr size_t kGeometryPairWindow = 64;
+/* And how far behind the expected place: a run the game drew in another
+ * order this tick puts the partner just before it. */
+constexpr size_t kGeometryPairBehind = 16;
 
 float ModelTranslationDistance2(const float *a, const float *b)
 {
@@ -8640,6 +8696,54 @@ bool ResidentKeyLess(const GeometrySnapshotDraw &a, const GeometrySnapshotDraw &
     return a.key.flags < b.key.flags;
 }
 
+/*
+ * What pairing streamed draw `curr` of this frame with `prev` of the last would
+ * cost the blend: the mean squared distance between vertex k of one and vertex
+ * k of the other, each placed by its own draw's model translation, and the
+ * span of `curr` (the diagonal of its box) that the cost is judged against.
+ * False when either span is not all inside its snapshot.
+ */
+bool StreamedPairCost(const GeometrySnapshotDraw &curr,
+                      const GeometrySnapshotDraw &prev, double *cost,
+                      float *extent)
+{
+    const size_t count = curr.key.vertex_count;
+    const size_t curr_first = curr.key.first_vertex;
+    const size_t prev_first = prev.key.first_vertex;
+    if (count == 0 || count != prev.key.vertex_count ||
+        (curr_first + count) * 4u > g_geo_curr_positions.size() ||
+        (prev_first + count) * 4u > g_geo_prev_positions.size())
+    {
+        return false;
+    }
+    float lo[3] = {std::numeric_limits<float>::infinity(),
+                   std::numeric_limits<float>::infinity(),
+                   std::numeric_limits<float>::infinity()};
+    float hi[3] = {-lo[0], -lo[1], -lo[2]};
+    double sum = 0.0;
+    for (size_t k = 0; k < count; k++)
+    {
+        const float *a = &g_geo_curr_positions[(curr_first + k) * 4u];
+        const float *b = &g_geo_prev_positions[(prev_first + k) * 4u];
+        for (int c = 0; c < 3; c++)
+        {
+            const double d = ((double)a[c] + curr.model[12 + c]) -
+                             ((double)b[c] + prev.model[12 + c]);
+            sum += d * d;
+            lo[c] = std::min(lo[c], a[c]);
+            hi[c] = std::max(hi[c], a[c]);
+        }
+    }
+    float extent2 = 0.0f;
+    for (int c = 0; c < 3; c++)
+    {
+        extent2 += (hi[c] - lo[c]) * (hi[c] - lo[c]);
+    }
+    *cost = sum / (double)count;
+    *extent = std::sqrt(extent2);
+    return true;
+}
+
 void PairGeometryDraws()
 {
     const std::vector<GeometrySnapshotDraw> &prev = g_geo_prev_draws;
@@ -8649,6 +8753,7 @@ void PairGeometryDraws()
      * own list: the window is counted in streamed draws, or a room's hundred
      * resident units ahead of the characters would put them out of reach. */
     thread_local std::vector<uint32_t> streamed;
+    thread_local std::vector<uint32_t> named;
     thread_local std::vector<uint32_t> resident;
     thread_local std::vector<char> taken;
     try
@@ -8656,10 +8761,13 @@ void PairGeometryDraws()
         g_geo_pairs.assign(curr.size(), -1);
         taken.assign(prev.size(), 0);
         streamed.clear();
+        named.clear();
         resident.clear();
         for (size_t k = 0; k < prev.size(); k++)
         {
-            (prev[k].key.mesh != nullptr ? resident : streamed)
+            (prev[k].key.mesh != nullptr ? resident
+             : prev[k].source != nullptr ? named
+                                         : streamed)
                 .push_back((uint32_t)k);
         }
     }
@@ -8669,57 +8777,158 @@ void PairGeometryDraws()
         return;
     }
 
-    size_t next = 0;
-    for (size_t i = 0; i < curr.size() && next < streamed.size(); i++)
+    /*
+     * Streamed draws pair with the closest like-shaped draw of last frame,
+     * vertex for vertex -- not the first one found.  Shape alone does not tell
+     * a draw from its neighbours: her two legs, a row of curtain panels, the
+     * light falling through each half of a window.  Taking the first in order
+     * paired them crosswise whenever the game's sort changed their order, and
+     * the extra frame drew each one halfway to another: a leg vanishing, a
+     * bright slab across the curtain.  The look stays bounded around where the
+     * order says the partner should be, and a pair whose closest candidate is
+     * still further away than kGeometryMaxPairMove of the draw's own size is
+     * left unblended -- the draw came, went or changed, and has no partner.
+     */
+    /*
+     * A named streamed draw -- a character's skinned piece, whose SGD unit is
+     * at the same address every tick -- pairs with the draw of last frame
+     * that drew the same unit the same time, and with nothing else: the same
+     * vertices, whatever the game's sort did and however close the camera is.
+     * Guessing among her face's like-shaped patches by order and distance
+     * still took a neighbour with the camera against her face, and the extra
+     * frame tore it apart.  One whose triangles changed (SameShape()) is left
+     * unpaired and borrows its motion (BorrowGeometryMotion()).
+     */
+    const auto named_less = [&prev](uint32_t a, uint32_t b) {
+        return std::less<const void *>()(prev[a].source, prev[b].source) ||
+               (prev[a].source == prev[b].source &&
+                prev[a].occurrence < prev[b].occurrence);
+    };
+    std::sort(named.begin(), named.end(), named_less);
+    for (size_t i = 0; i < curr.size(); i++)
     {
-        if (!GeometryDrawIsEligible(g_draws[i]) || curr[i].key.mesh != nullptr)
+        if (!GeometryDrawIsEligible(g_draws[i]) || curr[i].key.mesh != nullptr ||
+            curr[i].source == nullptr || curr[i].clipped)
         {
             continue;
         }
-        const size_t end =
-            std::min(streamed.size(), next + kGeometryPairWindow);
-        size_t found = end;
-        for (size_t k = next; k < end; k++)
+        const auto found = std::lower_bound(
+            named.begin(), named.end(), curr[i],
+            [&prev](uint32_t a, const GeometrySnapshotDraw &b) {
+                return std::less<const void *>()(prev[a].source, b.source) ||
+                       (prev[a].source == b.source &&
+                        prev[a].occurrence < b.occurrence);
+            });
+        if (found == named.end())
         {
-            if (prev[streamed[k]].key.SameShape(curr[i].key))
+            continue;
+        }
+        const GeometrySnapshotDraw &candidate = prev[*found];
+        if (candidate.source != curr[i].source ||
+            candidate.occurrence != curr[i].occurrence || candidate.clipped ||
+            taken[*found] || !candidate.key.SameShape(curr[i].key))
+        {
+            continue;
+        }
+        /* The same bound as a guessed pair: a unit drawn twice a frame in an
+         * order that changed, or a model remapped over the same address, is
+         * not the same piece moving. */
+        double cost = 0.0;
+        float extent = 0.0f;
+        if (!StreamedPairCost(curr[i], candidate, &cost, &extent))
+        {
+            continue;
+        }
+        const double limit = std::max((double)kGeometryMaxPairMove * extent,
+                                      (double)kGeometryMinPairMove);
+        if (!(cost <= limit * limit))
+        {
+            continue;
+        }
+        taken[*found] = 1;
+        g_geo_pairs[i] = (int32_t)*found;
+        g_geo_paired++;
+    }
+
+    size_t next = 0;
+    for (size_t i = 0; i < curr.size(); i++)
+    {
+        if (!GeometryDrawIsEligible(g_draws[i]) || curr[i].key.mesh != nullptr ||
+            curr[i].source != nullptr || curr[i].clipped)
+        {
+            continue;
+        }
+        const size_t begin = next > kGeometryPairBehind ? next - kGeometryPairBehind : 0;
+        const size_t end = std::min(streamed.size(), next + kGeometryPairWindow);
+        /* Two candidates: the first like-shaped one at or after the expected
+         * place -- the draw order's own answer, and right as long as the game
+         * keeps its order -- and the closest one anywhere in the look. */
+        size_t in_order = end;
+        double in_order_cost = 0.0;
+        float in_order_extent = 0.0f;
+        size_t closest = end;
+        double closest_cost = 0.0;
+        float closest_extent = 0.0f;
+        for (size_t k = begin; k < end; k++)
+        {
+            const GeometrySnapshotDraw &candidate = prev[streamed[k]];
+            if (taken[streamed[k]] || candidate.clipped ||
+                !candidate.key.SameShape(curr[i].key))
             {
-                found = k;
-                break;
+                continue;
             }
+            double cost = 0.0;
+            float extent = 0.0f;
+            if (!StreamedPairCost(curr[i], candidate, &cost, &extent))
+            {
+                continue;
+            }
+            if (k >= next && in_order == end)
+            {
+                in_order = k;
+                in_order_cost = cost;
+                in_order_extent = extent;
+            }
+            if (closest == end || cost < closest_cost)
+            {
+                closest = k;
+                closest_cost = cost;
+                closest_extent = extent;
+            }
+        }
+        /* The order's answer stands unless another is clearly closer -- at
+         * most half its distance.  Her face is many small like-shaped patches
+         * side by side, and walking she moves further in a tick than one patch
+         * is from the next: by distance alone each took its neighbour, and the
+         * extra frame tore her face apart.  Her legs, swapped in the sort, or
+         * two light bands across a curtain are far further apart than that. */
+        size_t found = in_order;
+        double found_cost = in_order_cost;
+        float found_extent = in_order_extent;
+        if (closest != end &&
+            (in_order == end ||
+             (in_order_cost > kGeometryPairSwitchMinCost &&
+              in_order_cost > kGeometryPairSwitch * closest_cost + kGeometryPairSwitchSlack)))
+        {
+            found = closest;
+            found_cost = closest_cost;
+            found_extent = closest_extent;
         }
         if (found == end)
         {
             continue;
         }
-
-        /* A run of like-shaped draws back to back (the two legs) pairs in
-         * order only while it is as long as last frame's.  When one member
-         * came or went there is no telling which, so the whole run goes
-         * unblended this tick rather than shifted by one. */
-        size_t curr_run = 1;
-        while (i + curr_run < curr.size() &&
-               curr[i + curr_run].key.mesh == nullptr &&
-               GeometryDrawIsEligible(g_draws[i + curr_run]) &&
-               curr[i + curr_run].key.SameShape(curr[i].key))
+        const double limit =
+            std::max((double)kGeometryMaxPairMove * found_extent,
+                     (double)kGeometryMinPairMove);
+        if (!(found_cost <= limit * limit))
         {
-            curr_run++;
-        }
-        size_t prev_run = 1;
-        while (found + prev_run < streamed.size() &&
-               prev[streamed[found + prev_run]].key.SameShape(curr[i].key))
-        {
-            prev_run++;
-        }
-        if (curr_run != prev_run)
-        {
-            i += curr_run - 1;
-            next = found + prev_run;
             continue;
         }
-
+        taken[streamed[found]] = 1;
         g_geo_pairs[i] = (int32_t)streamed[found];
         g_geo_paired++;
-        next = found + 1;
+        next = std::max(next, found + 1);
     }
 
     std::sort(resident.begin(), resident.end(), [&prev](uint32_t a, uint32_t b) {
@@ -8778,6 +8987,352 @@ int32_t GeometryPairOf(size_t index)
  * because nothing between here and the upload stage touches g_draws except
  * ConvertMeshDrawsToStreamed(), which announces itself.
  */
+/*
+ * A streamed draw with no partner -- one the game builds afresh each tick, its
+ * vertex count changing (an outline or glow around her), or one the clip cut
+ * into -- has nothing to blend from, and left where the tick put it, it rode
+ * half a tick ahead of the body it wraps: a pale double around her head and
+ * arm as she turned, her choker doubled, holes in her face with the camera
+ * against it.
+ *
+ * So it travels, as one piece, with what is moving where it is: the motion of
+ * the paired vertices in the same kGeometryBorrowCell cells as its own,
+ * averaged over the draw.  One move for the whole draw keeps its triangles
+ * whole -- moving each of its vertices with its own nearest neighbour tore a
+ * clipped patch of her face apart where hair and cheek meet.  The cells are a
+ * small open-addressed table holding only the cells the unpaired draws touch,
+ * so the work is one lookup a vertex however many vertices crowd a cell (the
+ * camera against her face put thousands in a few cells, and the frame took a
+ * tenth of a second).  A draw that shares no cell with a paired vertex moves
+ * with the nearest paired draw as a whole, centre to centre within
+ * kGeometryBorrowRadius; failing that it stays where the tick put it.
+ */
+void BorrowGeometryMotion()
+{
+    const std::vector<GeometrySnapshotDraw> &curr = g_geo_curr_draws;
+    const std::vector<GeometrySnapshotDraw> &prev = g_geo_prev_draws;
+    const std::vector<float> &cpos = g_geo_curr_positions;
+    const std::vector<float> &ppos = g_geo_prev_positions;
+    struct Mover
+    {
+        float centre[3];
+        float move[3];
+    };
+    struct Cell
+    {
+        int32_t x, y, z;
+        uint32_t count; /* paired vertices summed in; ~0u marks an empty slot */
+        float sum[3];
+    };
+    constexpr uint32_t kEmpty = ~0u;
+    constexpr size_t kMaxCells = (size_t)1 << 17;
+    thread_local std::vector<Mover> movers;
+    thread_local std::vector<size_t> loose;
+    thread_local std::vector<Cell> cells;
+    try
+    {
+        g_geo_borrowed.assign(curr.size(), GeometryBorrowedMotion{false, {0, 0, 0}});
+        movers.clear();
+        loose.clear();
+    }
+    catch (const std::bad_alloc &)
+    {
+        g_geo_borrowed.clear();
+        return;
+    }
+
+    const auto in_span = [](const std::vector<float> &positions,
+                            const GeometrySnapshotDraw &draw) {
+        const size_t first = draw.key.first_vertex;
+        const size_t count = draw.key.vertex_count;
+        return count != 0 && (first + count) * 4u <= positions.size();
+    };
+    const auto world = [](const std::vector<float> &positions,
+                          const GeometrySnapshotDraw &draw, size_t vertex,
+                          float out[3]) {
+        for (int c = 0; c < 3; c++)
+        {
+            out[c] = positions[vertex * 4u + (size_t)c] + draw.model[12 + c];
+        }
+    };
+    const auto cell_of = [](float v) {
+        const float scaled = std::floor(v / kGeometryBorrowCell);
+        /* Far-off or non-finite positions all land in one cell, which is
+         * harmless: they are never near her. */
+        return scaled >= -1.0e9f && scaled <= 1.0e9f ? (int32_t)scaled : INT32_MIN;
+    };
+    size_t mask = 0;
+    const auto find = [&](int32_t x, int32_t y, int32_t z, bool insert,
+                          bool *inserted = nullptr) -> Cell * {
+        size_t h = ((size_t)(uint32_t)x * 73856093u ^ (size_t)(uint32_t)y * 19349663u ^
+                    (size_t)(uint32_t)z * 83492791u) &
+                   mask;
+        for (size_t probe = 0; probe <= mask; probe++)
+        {
+            Cell &slot = cells[h];
+            if (slot.count == kEmpty)
+            {
+                if (!insert)
+                {
+                    return nullptr;
+                }
+                slot.x = x;
+                slot.y = y;
+                slot.z = z;
+                slot.count = 0;
+                slot.sum[0] = slot.sum[1] = slot.sum[2] = 0.0f;
+                if (inserted != nullptr)
+                {
+                    *inserted = true;
+                }
+                return &slot;
+            }
+            if (slot.x == x && slot.y == y && slot.z == z)
+            {
+                return &slot;
+            }
+            h = (h + 1) & mask;
+        }
+        return nullptr;
+    };
+
+    /* The unpaired draws, and how many vertices they hold. */
+    size_t loose_vertices = 0;
+    float loose_lo[3] = {std::numeric_limits<float>::infinity(),
+                         std::numeric_limits<float>::infinity(),
+                         std::numeric_limits<float>::infinity()};
+    float loose_hi[3] = {-loose_lo[0], -loose_lo[1], -loose_lo[2]};
+    for (size_t i = 0; i < curr.size() && i < g_draws.size(); i++)
+    {
+        if (GeometryPairOf(i) >= 0 || curr[i].key.mesh != nullptr ||
+            !GeometryDrawIsEligible(g_draws[i]) || !in_span(cpos, curr[i]))
+        {
+            continue;
+        }
+        try
+        {
+            loose.push_back(i);
+        }
+        catch (const std::bad_alloc &)
+        {
+            return;
+        }
+        loose_vertices += curr[i].key.vertex_count;
+    }
+    if (loose.empty())
+    {
+        return;
+    }
+
+    /* Their cells.  The table is kept at most half full; past kMaxCells / 2
+     * cells the rest of the unpaired vertices find no cell and their draws
+     * rest on the others, or on the nearest paired draw. */
+    size_t capacity = 1024;
+    while (capacity < loose_vertices * 2u && capacity < kMaxCells)
+    {
+        capacity <<= 1;
+    }
+    try
+    {
+        cells.assign(capacity, Cell{0, 0, 0, kEmpty, {0, 0, 0}});
+    }
+    catch (const std::bad_alloc &)
+    {
+        return;
+    }
+    mask = capacity - 1;
+    size_t used = 0;
+    for (size_t i : loose)
+    {
+        const size_t first = curr[i].key.first_vertex;
+        for (size_t v = first; v < first + curr[i].key.vertex_count && used < capacity / 2u;
+             v++)
+        {
+            float w[3];
+            world(cpos, curr[i], v, w);
+            for (int c = 0; c < 3; c++)
+            {
+                loose_lo[c] = std::min(loose_lo[c], w[c]);
+                loose_hi[c] = std::max(loose_hi[c], w[c]);
+            }
+            bool inserted = false;
+            find(cell_of(w[0]), cell_of(w[1]), cell_of(w[2]), true, &inserted);
+            if (inserted)
+            {
+                used++;
+            }
+        }
+    }
+
+    /* The paired draws: each one's motion as a whole, and the motion of its
+     * vertices summed into the unpaired draws' cells -- each vertex its own,
+     * or the whole draw's where its vertices did not move together and their
+     * own would mislead. */
+    for (size_t i = 0; i < curr.size() && i < g_draws.size(); i++)
+    {
+        const int32_t pair = GeometryPairOf(i);
+        if (pair < 0 || curr[i].key.mesh != nullptr ||
+            !GeometryDrawIsEligible(g_draws[i]) || !in_span(cpos, curr[i]) ||
+            !in_span(ppos, prev[(size_t)pair]))
+        {
+            continue;
+        }
+        const GeometrySnapshotDraw &before = prev[(size_t)pair];
+        const size_t first = curr[i].key.first_vertex;
+        const size_t prev_first = before.key.first_vertex;
+        const size_t count = curr[i].key.vertex_count;
+        double mean[3] = {0.0, 0.0, 0.0};
+        double centre[3] = {0.0, 0.0, 0.0};
+        float lo[3] = {std::numeric_limits<float>::infinity(),
+                       std::numeric_limits<float>::infinity(),
+                       std::numeric_limits<float>::infinity()};
+        float hi[3] = {-lo[0], -lo[1], -lo[2]};
+        for (size_t k = 0; k < count; k++)
+        {
+            float a[3], b[3];
+            world(cpos, curr[i], first + k, a);
+            world(ppos, before, prev_first + k, b);
+            for (int c = 0; c < 3; c++)
+            {
+                mean[c] += (double)a[c] - (double)b[c];
+                centre[c] += a[c];
+                lo[c] = std::min(lo[c], a[c]);
+                hi[c] = std::max(hi[c], a[c]);
+            }
+        }
+        Mover mover;
+        float extent2 = 0.0f;
+        for (int c = 0; c < 3; c++)
+        {
+            mean[c] /= (double)count;
+            mover.centre[c] = (float)(centre[c] / (double)count);
+            mover.move[c] = (float)mean[c];
+            extent2 += (hi[c] - lo[c]) * (hi[c] - lo[c]);
+        }
+        try
+        {
+            movers.push_back(mover);
+        }
+        catch (const std::bad_alloc &)
+        {
+            return;
+        }
+
+        bool near_loose = true;
+        for (int c = 0; c < 3 && near_loose; c++)
+        {
+            near_loose = lo[c] <= loose_hi[c] + kGeometryBorrowCell &&
+                         hi[c] >= loose_lo[c] - kGeometryBorrowCell;
+        }
+        if (!near_loose)
+        {
+            continue;
+        }
+        const float limit = std::max(kGeometryMaxIncoherence * std::sqrt(extent2),
+                                     kGeometryMinIncoherence);
+        bool coherent = true;
+        for (size_t k = 0; k < count && coherent; k++)
+        {
+            float a[3], b[3];
+            world(cpos, curr[i], first + k, a);
+            world(ppos, before, prev_first + k, b);
+            float d2 = 0.0f;
+            for (int c = 0; c < 3; c++)
+            {
+                const float d = (a[c] - b[c]) - (float)mean[c];
+                d2 += d * d;
+            }
+            coherent = d2 <= limit * limit;
+        }
+        for (size_t k = 0; k < count; k++)
+        {
+            float a[3];
+            world(cpos, curr[i], first + k, a);
+            Cell *slot = find(cell_of(a[0]), cell_of(a[1]), cell_of(a[2]), false);
+            if (slot == nullptr)
+            {
+                continue;
+            }
+            float b[3];
+            world(ppos, before, prev_first + k, b);
+            for (int c = 0; c < 3; c++)
+            {
+                slot->sum[c] += coherent ? a[c] - b[c] : (float)mean[c];
+            }
+            slot->count++;
+        }
+    }
+
+    for (size_t i : loose)
+    {
+        const GeometrySnapshotDraw &draw = curr[i];
+        const size_t first = draw.key.first_vertex;
+        const size_t count = draw.key.vertex_count;
+
+        /* The motion where its vertices are, each vertex weighing alike. */
+        double move[3] = {0.0, 0.0, 0.0};
+        double centre[3] = {0.0, 0.0, 0.0};
+        size_t found = 0;
+        for (size_t v = first; v < first + count; v++)
+        {
+            float w[3];
+            world(cpos, draw, v, w);
+            for (int c = 0; c < 3; c++)
+            {
+                centre[c] += w[c];
+            }
+            const Cell *slot = find(cell_of(w[0]), cell_of(w[1]), cell_of(w[2]), false);
+            if (slot == nullptr || slot->count == 0 || slot->count == kEmpty)
+            {
+                continue;
+            }
+            for (int c = 0; c < 3; c++)
+            {
+                move[c] += (double)slot->sum[c] / (double)slot->count;
+            }
+            found++;
+        }
+        GeometryBorrowedMotion &borrowed = g_geo_borrowed[i];
+        if (found != 0)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                borrowed.move[c] = (float)(move[c] / (double)found);
+            }
+            borrowed.valid = true;
+            continue;
+        }
+
+        /* Nothing paired shares a cell with it: the nearest paired draw. */
+        float mid[3];
+        for (int c = 0; c < 3; c++)
+        {
+            mid[c] = (float)(centre[c] / (double)count);
+        }
+        const Mover *whole = nullptr;
+        float best = kGeometryBorrowRadius * kGeometryBorrowRadius;
+        for (const Mover &mover : movers)
+        {
+            float d2 = 0.0f;
+            for (int c = 0; c < 3; c++)
+            {
+                const float d = mover.centre[c] - mid[c];
+                d2 += d * d;
+            }
+            if (d2 <= best)
+            {
+                best = d2;
+                whole = &mover;
+            }
+        }
+        if (whole != nullptr)
+        {
+            std::memcpy(borrowed.move, whole->move, sizeof(borrowed.move));
+            borrowed.valid = true;
+        }
+    }
+}
+
 void CaptureGeometrySnapshot(int extra)
 {
     InvalidateGeometrySnapshot();
@@ -8803,6 +9358,8 @@ void CaptureGeometrySnapshot(int extra)
         return;
     }
 
+    thread_local std::unordered_map<const void *, uint32_t> occurrences;
+    occurrences.clear();
     for (size_t i = 0; i < g_draws.size(); i++)
     {
         const DrawCommand &draw = g_draws[i];
@@ -8815,6 +9372,20 @@ void CaptureGeometrySnapshot(int extra)
         snapshot.key.mesh = draw.resident_mesh ? draw.resident.get() : nullptr;
         snapshot.key.flags = GeometryDrawFlags(draw);
         std::memcpy(snapshot.model, draw.model, sizeof(snapshot.model));
+        snapshot.clipped = draw.clipped;
+        snapshot.source = draw.resident_mesh ? nullptr : draw.stream_source;
+        snapshot.occurrence = 0;
+        if (snapshot.source != nullptr)
+        {
+            try
+            {
+                snapshot.occurrence = occurrences[snapshot.source]++;
+            }
+            catch (const std::bad_alloc &)
+            {
+                snapshot.source = nullptr;
+            }
+        }
     }
     for (size_t vertex = 0; vertex < g_vertices.size(); vertex++)
     {
@@ -8824,6 +9395,7 @@ void CaptureGeometrySnapshot(int extra)
     g_geo_snapshot_valid = true;
 
     PairGeometryDraws();
+    BorrowGeometryMotion();
     /* Only that there IS a previous position buffer.  A paired draw's span
      * sits at different places in the two buffers, so each blend checks both
      * against their own buffer's size (ApplyGeometryVertexBlend()). */
@@ -8902,6 +9474,32 @@ void ApplyGeometryVertexBlend(float t)
         const int32_t pair = GeometryPairOf(i);
         if (pair < 0)
         {
+            /* Unpaired, but travelling with its nearest paired neighbour
+             * (BorrowGeometryMotion()); on the tick itself, its own place. */
+            if (i < g_geo_borrowed.size() && g_geo_borrowed[i].valid)
+            {
+                const DrawCommand &loose = g_draws[i];
+                const size_t first = (size_t)loose.first_vertex;
+                const size_t count = (size_t)loose.vertex_count;
+                if (GeometryDrawIsEligible(loose) && !loose.indexed_mesh &&
+                    !loose.resident_mesh && count != 0 && count <= curr_limit &&
+                    first <= curr_limit - count && count <= g_vertices.size() &&
+                    first <= g_vertices.size() - count)
+                {
+                    const float back = t >= 1.0f ? 0.0f : 1.0f - t;
+                    const float *move = g_geo_borrowed[i].move;
+                    for (size_t vertex = first; vertex < first + count; vertex++)
+                    {
+                        const float *to = &g_geo_curr_positions[vertex * 4u];
+                        float *position = g_vertices[vertex].position;
+                        for (int c = 0; c < 3; c++)
+                        {
+                            position[c] = to[c] - move[c] * back;
+                        }
+                        position[3] = to[3];
+                    }
+                }
+            }
             continue;
         }
         const DrawCommand &draw = g_draws[i];
@@ -8957,6 +9555,75 @@ void ApplyGeometryVertexBlend(float t)
         if (jumped)
         {
             continue;
+        }
+
+        /* And one whose vertices did not move together -- each away from the
+         * draw's average motion by more than kGeometryMaxIncoherence of the
+         * draw's own size -- is not blended vertex by vertex: it keeps its own
+         * shape and only travels by that average motion (below).  That is not a body
+         * moving but the wrong vertices paired: the vertices of a draw the
+         * game re-sorts every frame (a see-through curtain), or a like-shaped
+         * draw's counterpart that is not this one.  Blended, its triangles
+         * were scrambled for the in-between frame: the flicker on curtains
+         * and on her legs.  A swinging limb, whose far end moves more than its
+         * root, stays well inside the bound.  Again a decision made from the
+         * two snapshots alone, so every present of the tick agrees. */
+        {
+            double mean[3] = {0.0, 0.0, 0.0};
+            float lo[3] = {std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()};
+            float hi[3] = {-std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()};
+            for (size_t vertex = first; vertex < first + count; vertex++)
+            {
+                const float *from = prev + (vertex - first) * 4u;
+                const float *to = &g_geo_curr_positions[vertex * 4u];
+                for (int c = 0; c < 3; c++)
+                {
+                    mean[c] += (double)to[c] - (double)from[c];
+                    lo[c] = std::min(lo[c], to[c]);
+                    hi[c] = std::max(hi[c], to[c]);
+                }
+            }
+            float extent2 = 0.0f;
+            for (int c = 0; c < 3; c++)
+            {
+                mean[c] /= (double)count;
+                extent2 += (hi[c] - lo[c]) * (hi[c] - lo[c]);
+            }
+            const float limit = std::max(kGeometryMaxIncoherence * std::sqrt(extent2),
+                                         kGeometryMinIncoherence);
+            bool incoherent = false;
+            for (size_t vertex = first; vertex < first + count && !incoherent;
+                 vertex++)
+            {
+                const float *from = prev + (vertex - first) * 4u;
+                const float *to = &g_geo_curr_positions[vertex * 4u];
+                float deviation2 = 0.0f;
+                for (int c = 0; c < 3; c++)
+                {
+                    const float d = (to[c] - from[c]) - (float)mean[c];
+                    deviation2 += d * d;
+                }
+                incoherent = !(deviation2 <= limit * limit);
+            }
+            if (incoherent)
+            {
+                /* Its shape is this frame's, but it travels with the rest of
+                 * her: moved back along its own average motion by the share
+                 * of the tick still to come.  Left where the tick put it, a
+                 * small piece rode half a tick ahead of the body it sits on
+                 * -- an eyelid off its eye, the seam at an elbow open. */
+                for (size_t vertex = first; vertex < first + count; vertex++)
+                {
+                    const float *to = &g_geo_curr_positions[vertex * 4u];
+                    float *position = g_vertices[vertex].position;
+                    for (int c = 0; c < 3; c++)
+                    {
+                        position[c] = to[c] - (float)mean[c] * (1.0f - t);
+                    }
+                    position[3] = to[3];
+                }
+                continue;
+            }
         }
 
         for (size_t vertex = first; vertex < first + count; vertex++)
@@ -17150,12 +17817,21 @@ void ReiPan_RendererInvalidateMeshCache(const void *owner)
     g_mesh_cache_invalidations++;
 }
 
+const void *g_next_mesh_stream_source;
+
+void ReiPan_RendererSetNextMeshStreamSource(const void *source)
+{
+    g_next_mesh_stream_source = source;
+}
+
 unsigned int ReiPan_RendererBeginMeshStream(const sceGsTex0 *tex0,
                                               int expected_vertex_count,
                                               const float *local_world,
                                               const ReiPanLightState *fragment_lights,
                                               const void *texture)
 {
+    const void *source = g_next_mesh_stream_source;
+    g_next_mesh_stream_source = nullptr;
     if (expected_vertex_count <= 0 || (expected_vertex_count % 3) != 0 ||
         local_world == nullptr || !g_3d_camera_valid || !g_frame_active ||
         g_mesh_stream.token != 0 || !EnsureRenderer() ||
@@ -17176,6 +17852,7 @@ unsigned int ReiPan_RendererBeginMeshStream(const sceGsTex0 *tex0,
     pending.command.mag_linear = true;
     pending.command.preserve_original_aspect = false;
     pending.command.transform_mesh = true;
+    pending.command.stream_source = source;
     TagShadowPass(pending.command);
     SnapshotFragmentLights(pending.command, fragment_lights);
     ApplyGsDrawEnv(pending.command);
@@ -17297,6 +17974,7 @@ void ReiPan_RendererCommitMeshStream(unsigned int stream)
         vertex_count <= std::numeric_limits<Uint32>::max())
     {
         g_mesh_stream.command.vertex_count = (Uint32)vertex_count;
+        g_mesh_stream.command.clipped = g_mesh_stream.clipped_triangles != 0;
         g_draws.push_back(g_mesh_stream.command);
         g_mesh_direct_stream_vertices += vertex_count;
     }

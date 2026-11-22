@@ -8510,11 +8510,16 @@ constexpr float kGeometryMaxTickJump = 200.0f;
  * not blended (ApplyGeometryVertexBlend()); and a floor in world units, so a
  * draw of a few texels' size is not judged on rounding. */
 constexpr float kGeometryMaxIncoherence = 0.35f;
-constexpr float kGeometryMinIncoherence = 0.25f;
+constexpr float kGeometryMinIncoherence = 1.0f;
 /* The furthest, on average, a streamed draw's vertices may be from its
  * partner's over one tick, as a share of the draw's size, before the pairing
  * is taken for a different object (PairGeometryDraws()). */
 constexpr float kGeometryMaxPairMove = 0.6f;
+/* Never less than this in world units, though (Rei is about 27 tall): a small
+ * piece of her -- an eyelid, the seam at an elbow -- moves with her whole body,
+ * further in a tick than its own size when she runs, and judged by size alone
+ * it went unpaired, drawn a tick ahead of the face or arm it sits on. */
+constexpr float kGeometryMinPairMove = 12.0f;
 
 bool ModelJumped(const float *from, const float *to)
 {
@@ -8780,7 +8785,7 @@ void PairGeometryDraws()
         }
         const double limit =
             std::max((double)kGeometryMaxPairMove * found_extent,
-                     (double)kGeometryMinIncoherence);
+                     (double)kGeometryMinPairMove);
         if (!(found_cost <= limit * limit))
         {
             continue;
@@ -9030,7 +9035,8 @@ void ApplyGeometryVertexBlend(float t)
 
         /* And one whose vertices did not move together -- each away from the
          * draw's average motion by more than kGeometryMaxIncoherence of the
-         * draw's own size -- keeps its own positions too.  That is not a body
+         * draw's own size -- is not blended vertex by vertex: it keeps its own
+         * shape and only travels by that average motion (below).  That is not a body
          * moving but the wrong vertices paired: the vertices of a draw the
          * game re-sorts every frame (a see-through curtain), or a like-shaped
          * draw's counterpart that is not this one.  Blended, its triangles
@@ -9077,6 +9083,21 @@ void ApplyGeometryVertexBlend(float t)
             }
             if (incoherent)
             {
+                /* Its shape is this frame's, but it travels with the rest of
+                 * her: moved back along its own average motion by the share
+                 * of the tick still to come.  Left where the tick put it, a
+                 * small piece rode half a tick ahead of the body it sits on
+                 * -- an eyelid off its eye, the seam at an elbow open. */
+                for (size_t vertex = first; vertex < first + count; vertex++)
+                {
+                    const float *to = &g_geo_curr_positions[vertex * 4u];
+                    float *position = g_vertices[vertex].position;
+                    for (int c = 0; c < 3; c++)
+                    {
+                        position[c] = to[c] - (float)mean[c] * (1.0f - t);
+                    }
+                    position[3] = to[3];
+                }
                 continue;
             }
         }

@@ -152,6 +152,10 @@ window, HDR, mouse and key-binding options are left out on the console.
 | `REIPAN_PS5_LAUNCH_BACKGROUND` | the background | A different picture for the launch screen |
 | `REIPAN_PS5_BUILD_LABEL` | `ReiPanPS5-dev` | Build name in the start-up notification and the log |
 
+A PS5 release is made with **Actions → PS5 Release**, which creates a draft
+release `ps5-v<version>` from `release-notes/ps5-v<version>.md`; attach the
+zipped title folder to it, then publish it.
+
 See `ps5/NOTICE.md` for where the PS5 support files come from.
 
 ## PS2 save transfer

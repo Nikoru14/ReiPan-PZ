@@ -1298,18 +1298,15 @@ std::vector<float> g_geo_prev_positions;
 std::vector<float> g_geo_curr_positions;
 /* Per current draw, its corresponding previous draw, or -1. */
 std::vector<int32_t> g_geo_pairs;
-/* Per current draw, for a streamed draw that found no partner: the average
- * motion over the tick of the nearest streamed draw that did, which it
- * borrows (BorrowGeometryMotion()); `valid` false when there is none. */
+/* Per current draw, for a streamed draw that found no partner: the motion
+ * over the tick of the paired vertices around it, which it borrows as one
+ * piece (BorrowGeometryMotion()); `valid` false when there is none. */
 struct GeometryBorrowedMotion
 {
     bool valid;
     float move[3];
 };
 std::vector<GeometryBorrowedMotion> g_geo_borrowed;
-/* The borrowed motion itself, three floats per vertex, indexed like
- * g_geo_curr_positions: zero for a vertex that found none. */
-std::vector<float> g_geo_borrow_moves;
 size_t g_geo_paired;
 /* This frame's snapshot is complete and may become the next frame's previous. */
 bool g_geo_snapshot_valid;
@@ -8550,9 +8547,9 @@ constexpr double kGeometryPairSwitchMinCost = 9.0;
 /* How far, centre to centre, an unpaired streamed draw looks for a paired one
  * to borrow its motion from (BorrowGeometryMotion()). */
 constexpr float kGeometryBorrowRadius = 20.0f;
-/* And how far, vertex to vertex, it looks first for a paired vertex to move
- * with -- also the cell of the spatial hash. */
-constexpr float kGeometryBorrowVertexRadius = 2.5f;
+/* The cell of the motion grid unpaired draws read their surroundings' motion
+ * from, in world units. */
+constexpr float kGeometryBorrowCell = 2.5f;
 
 bool ModelJumped(const float *from, const float *to)
 {
@@ -8602,7 +8599,6 @@ void InvalidateGeometrySnapshot()
 {
     g_geo_pairs.clear();
     g_geo_borrowed.clear();
-    g_geo_borrow_moves.clear();
     g_geo_paired = 0;
     g_geo_snapshot_valid = false;
     g_geo_vertices_valid = false;
@@ -8927,14 +8923,17 @@ int32_t GeometryPairOf(size_t index)
  * arm as she turned, her choker doubled, holes in her face with the camera
  * against it.
  *
- * So each of its vertices borrows the motion of the nearest vertex of a paired
- * draw, within kGeometryBorrowVertexRadius -- a layer over her arm follows the
- * arm vertex for vertex, not the centre of whichever piece of her is nearest.
- * Only paired vertices near an unpaired draw are indexed (a small spatial
- * hash), so the work stays with her and whatever else lost its partner.  A
- * vertex with none near borrows the motion of the nearest paired draw as a
- * whole, centre to centre within kGeometryBorrowRadius; failing that it stays
- * where the tick put it.
+ * So it travels, as one piece, with what is moving where it is: the motion of
+ * the paired vertices in the same kGeometryBorrowCell cells as its own,
+ * averaged over the draw.  One move for the whole draw keeps its triangles
+ * whole -- moving each of its vertices with its own nearest neighbour tore a
+ * clipped patch of her face apart where hair and cheek meet.  The cells are a
+ * small open-addressed table holding only the cells the unpaired draws touch,
+ * so the work is one lookup a vertex however many vertices crowd a cell (the
+ * camera against her face put thousands in a few cells, and the frame took a
+ * tenth of a second).  A draw that shares no cell with a paired vertex moves
+ * with the nearest paired draw as a whole, centre to centre within
+ * kGeometryBorrowRadius; failing that it stays where the tick put it.
  */
 void BorrowGeometryMotion()
 {
@@ -8947,37 +8946,26 @@ void BorrowGeometryMotion()
         float centre[3];
         float move[3];
     };
-    struct Box
+    struct Cell
     {
-        float lo[3];
-        float hi[3];
+        int32_t x, y, z;
+        uint32_t count; /* paired vertices summed in; ~0u marks an empty slot */
+        float sum[3];
     };
-    struct Entry
-    {
-        float position[3];
-        float move[3];
-        int32_t next;
-    };
-    constexpr int kBuckets = 4096;
+    constexpr uint32_t kEmpty = ~0u;
+    constexpr size_t kMaxCells = (size_t)1 << 17;
     thread_local std::vector<Mover> movers;
-    thread_local std::vector<Box> loose_boxes;
     thread_local std::vector<size_t> loose;
-    thread_local std::vector<Entry> entries;
-    thread_local std::vector<int32_t> heads;
+    thread_local std::vector<Cell> cells;
     try
     {
         g_geo_borrowed.assign(curr.size(), GeometryBorrowedMotion{false, {0, 0, 0}});
-        g_geo_borrow_moves.assign(cpos.size() / 4u * 3u, 0.0f);
         movers.clear();
-        loose_boxes.clear();
         loose.clear();
-        entries.clear();
-        heads.assign(kBuckets, -1);
     }
     catch (const std::bad_alloc &)
     {
         g_geo_borrowed.clear();
-        g_geo_borrow_moves.clear();
         return;
     }
 
@@ -8995,17 +8983,53 @@ void BorrowGeometryMotion()
             out[c] = positions[vertex * 4u + (size_t)c] + draw.model[12 + c];
         }
     };
-    const auto cell = [](float v) {
-        return (int)std::floor(v / kGeometryBorrowVertexRadius);
+    const auto cell_of = [](float v) {
+        const float scaled = std::floor(v / kGeometryBorrowCell);
+        /* Far-off or non-finite positions all land in one cell, which is
+         * harmless: they are never near her. */
+        return scaled >= -1.0e9f && scaled <= 1.0e9f ? (int32_t)scaled : INT32_MIN;
     };
-    const auto bucket = [](int x, int y, int z) {
-        return (int)(((unsigned)x * 73856093u ^ (unsigned)y * 19349663u ^
-                      (unsigned)z * 83492791u) &
-                     (unsigned)(kBuckets - 1));
+    size_t mask = 0;
+    const auto find = [&](int32_t x, int32_t y, int32_t z, bool insert,
+                          bool *inserted = nullptr) -> Cell * {
+        size_t h = ((size_t)(uint32_t)x * 73856093u ^ (size_t)(uint32_t)y * 19349663u ^
+                    (size_t)(uint32_t)z * 83492791u) &
+                   mask;
+        for (size_t probe = 0; probe <= mask; probe++)
+        {
+            Cell &slot = cells[h];
+            if (slot.count == kEmpty)
+            {
+                if (!insert)
+                {
+                    return nullptr;
+                }
+                slot.x = x;
+                slot.y = y;
+                slot.z = z;
+                slot.count = 0;
+                slot.sum[0] = slot.sum[1] = slot.sum[2] = 0.0f;
+                if (inserted != nullptr)
+                {
+                    *inserted = true;
+                }
+                return &slot;
+            }
+            if (slot.x == x && slot.y == y && slot.z == z)
+            {
+                return &slot;
+            }
+            h = (h + 1) & mask;
+        }
+        return nullptr;
     };
 
-    /* The unpaired draws, and the boxes paired vertices must fall in to be
-     * worth indexing. */
+    /* The unpaired draws, and how many vertices they hold. */
+    size_t loose_vertices = 0;
+    float loose_lo[3] = {std::numeric_limits<float>::infinity(),
+                         std::numeric_limits<float>::infinity(),
+                         std::numeric_limits<float>::infinity()};
+    float loose_hi[3] = {-loose_lo[0], -loose_lo[1], -loose_lo[2]};
     for (size_t i = 0; i < curr.size() && i < g_draws.size(); i++)
     {
         if (GeometryPairOf(i) >= 0 || curr[i].key.mesh != nullptr ||
@@ -9013,41 +9037,65 @@ void BorrowGeometryMotion()
         {
             continue;
         }
-        Box box;
-        for (int c = 0; c < 3; c++)
-        {
-            box.lo[c] = std::numeric_limits<float>::infinity();
-            box.hi[c] = -std::numeric_limits<float>::infinity();
-        }
-        const size_t first = curr[i].key.first_vertex;
-        for (size_t v = first; v < first + curr[i].key.vertex_count; v++)
-        {
-            float w[3];
-            world(cpos, curr[i], v, w);
-            for (int c = 0; c < 3; c++)
-            {
-                box.lo[c] = std::min(box.lo[c], w[c] - kGeometryBorrowVertexRadius);
-                box.hi[c] = std::max(box.hi[c], w[c] + kGeometryBorrowVertexRadius);
-            }
-        }
         try
         {
             loose.push_back(i);
-            loose_boxes.push_back(box);
         }
         catch (const std::bad_alloc &)
         {
             return;
         }
+        loose_vertices += curr[i].key.vertex_count;
     }
     if (loose.empty())
     {
         return;
     }
 
-    /* The paired draws: each one's motion as a whole, and its vertices near
-     * an unpaired draw with their own motion -- or the whole draw's, where
-     * its vertices did not move together and their own would mislead. */
+    /* Their cells.  The table is kept at most half full; past kMaxCells / 2
+     * cells the rest of the unpaired vertices find no cell and their draws
+     * rest on the others, or on the nearest paired draw. */
+    size_t capacity = 1024;
+    while (capacity < loose_vertices * 2u && capacity < kMaxCells)
+    {
+        capacity <<= 1;
+    }
+    try
+    {
+        cells.assign(capacity, Cell{0, 0, 0, kEmpty, {0, 0, 0}});
+    }
+    catch (const std::bad_alloc &)
+    {
+        return;
+    }
+    mask = capacity - 1;
+    size_t used = 0;
+    for (size_t i : loose)
+    {
+        const size_t first = curr[i].key.first_vertex;
+        for (size_t v = first; v < first + curr[i].key.vertex_count && used < capacity / 2u;
+             v++)
+        {
+            float w[3];
+            world(cpos, curr[i], v, w);
+            for (int c = 0; c < 3; c++)
+            {
+                loose_lo[c] = std::min(loose_lo[c], w[c]);
+                loose_hi[c] = std::max(loose_hi[c], w[c]);
+            }
+            bool inserted = false;
+            find(cell_of(w[0]), cell_of(w[1]), cell_of(w[2]), true, &inserted);
+            if (inserted)
+            {
+                used++;
+            }
+        }
+    }
+
+    /* The paired draws: each one's motion as a whole, and the motion of its
+     * vertices summed into the unpaired draws' cells -- each vertex its own,
+     * or the whole draw's where its vertices did not move together and their
+     * own would mislead. */
     for (size_t i = 0; i < curr.size() && i < g_draws.size(); i++)
     {
         const int32_t pair = GeometryPairOf(i);
@@ -9098,19 +9146,11 @@ void BorrowGeometryMotion()
             return;
         }
 
-        bool near_loose = false;
-        for (const Box &box : loose_boxes)
+        bool near_loose = true;
+        for (int c = 0; c < 3 && near_loose; c++)
         {
-            bool overlap = true;
-            for (int c = 0; c < 3 && overlap; c++)
-            {
-                overlap = lo[c] <= box.hi[c] && hi[c] >= box.lo[c];
-            }
-            if (overlap)
-            {
-                near_loose = true;
-                break;
-            }
+            near_loose = lo[c] <= loose_hi[c] + kGeometryBorrowCell &&
+                         hi[c] >= loose_lo[c] - kGeometryBorrowCell;
         }
         if (!near_loose)
         {
@@ -9134,26 +9174,20 @@ void BorrowGeometryMotion()
         }
         for (size_t k = 0; k < count; k++)
         {
-            Entry entry;
+            float a[3];
+            world(cpos, curr[i], first + k, a);
+            Cell *slot = find(cell_of(a[0]), cell_of(a[1]), cell_of(a[2]), false);
+            if (slot == nullptr)
+            {
+                continue;
+            }
             float b[3];
-            world(cpos, curr[i], first + k, entry.position);
             world(ppos, before, prev_first + k, b);
             for (int c = 0; c < 3; c++)
             {
-                entry.move[c] = coherent ? entry.position[c] - b[c] : (float)mean[c];
+                slot->sum[c] += coherent ? a[c] - b[c] : (float)mean[c];
             }
-            const int h = bucket(cell(entry.position[0]), cell(entry.position[1]),
-                                 cell(entry.position[2]));
-            entry.next = heads[(size_t)h];
-            try
-            {
-                entries.push_back(entry);
-            }
-            catch (const std::bad_alloc &)
-            {
-                break;
-            }
-            heads[(size_t)h] = (int32_t)(entries.size() - 1);
+            slot->count++;
         }
     }
 
@@ -9163,23 +9197,45 @@ void BorrowGeometryMotion()
         const size_t first = draw.key.first_vertex;
         const size_t count = draw.key.vertex_count;
 
-        /* The whole draw's fallback: the nearest paired draw by centre. */
-        float centre[3] = {0.0f, 0.0f, 0.0f};
+        /* The motion where its vertices are, each vertex weighing alike. */
+        double move[3] = {0.0, 0.0, 0.0};
+        double centre[3] = {0.0, 0.0, 0.0};
+        size_t found = 0;
+        for (size_t v = first; v < first + count; v++)
         {
-            double sum[3] = {0.0, 0.0, 0.0};
-            for (size_t v = first; v < first + count; v++)
+            float w[3];
+            world(cpos, draw, v, w);
+            for (int c = 0; c < 3; c++)
             {
-                float w[3];
-                world(cpos, draw, v, w);
-                for (int c = 0; c < 3; c++)
-                {
-                    sum[c] += w[c];
-                }
+                centre[c] += w[c];
+            }
+            const Cell *slot = find(cell_of(w[0]), cell_of(w[1]), cell_of(w[2]), false);
+            if (slot == nullptr || slot->count == 0 || slot->count == kEmpty)
+            {
+                continue;
             }
             for (int c = 0; c < 3; c++)
             {
-                centre[c] = (float)(sum[c] / (double)count);
+                move[c] += (double)slot->sum[c] / (double)slot->count;
             }
+            found++;
+        }
+        GeometryBorrowedMotion &borrowed = g_geo_borrowed[i];
+        if (found != 0)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                borrowed.move[c] = (float)(move[c] / (double)found);
+            }
+            borrowed.valid = true;
+            continue;
+        }
+
+        /* Nothing paired shares a cell with it: the nearest paired draw. */
+        float mid[3];
+        for (int c = 0; c < 3; c++)
+        {
+            mid[c] = (float)(centre[c] / (double)count);
         }
         const Mover *whole = nullptr;
         float best = kGeometryBorrowRadius * kGeometryBorrowRadius;
@@ -9188,7 +9244,7 @@ void BorrowGeometryMotion()
             float d2 = 0.0f;
             for (int c = 0; c < 3; c++)
             {
-                const float d = mover.centre[c] - centre[c];
+                const float d = mover.centre[c] - mid[c];
                 d2 += d * d;
             }
             if (d2 <= best)
@@ -9197,52 +9253,11 @@ void BorrowGeometryMotion()
                 whole = &mover;
             }
         }
-
-        bool any = false;
-        for (size_t v = first; v < first + count; v++)
+        if (whole != nullptr)
         {
-            float w[3];
-            world(cpos, draw, v, w);
-            const Entry *nearest = nullptr;
-            float nearest_d2 = kGeometryBorrowVertexRadius * kGeometryBorrowVertexRadius;
-            const int cx = cell(w[0]);
-            const int cy = cell(w[1]);
-            const int cz = cell(w[2]);
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                for (int dy = -1; dy <= 1; dy++)
-                {
-                    for (int dz = -1; dz <= 1; dz++)
-                    {
-                        for (int32_t e = heads[(size_t)bucket(cx + dx, cy + dy, cz + dz)];
-                             e >= 0; e = entries[(size_t)e].next)
-                        {
-                            const Entry &candidate = entries[(size_t)e];
-                            float d2 = 0.0f;
-                            for (int c = 0; c < 3; c++)
-                            {
-                                const float d = candidate.position[c] - w[c];
-                                d2 += d * d;
-                            }
-                            if (d2 <= nearest_d2)
-                            {
-                                nearest_d2 = d2;
-                                nearest = &candidate;
-                            }
-                        }
-                    }
-                }
-            }
-            const float *move = nearest != nullptr ? nearest->move
-                                : whole != nullptr ? whole->move
-                                                   : nullptr;
-            if (move != nullptr)
-            {
-                std::memcpy(&g_geo_borrow_moves[v * 3u], move, sizeof(float) * 3u);
-                any = true;
-            }
+            std::memcpy(borrowed.move, whole->move, sizeof(borrowed.move));
+            borrowed.valid = true;
         }
-        g_geo_borrowed[i].valid = any;
     }
 }
 
@@ -9385,19 +9400,16 @@ void ApplyGeometryVertexBlend(float t)
                     first <= g_vertices.size() - count)
                 {
                     const float back = t >= 1.0f ? 0.0f : 1.0f - t;
-                    if ((first + count) * 3u <= g_geo_borrow_moves.size())
+                    const float *move = g_geo_borrowed[i].move;
+                    for (size_t vertex = first; vertex < first + count; vertex++)
                     {
-                        for (size_t vertex = first; vertex < first + count; vertex++)
+                        const float *to = &g_geo_curr_positions[vertex * 4u];
+                        float *position = g_vertices[vertex].position;
+                        for (int c = 0; c < 3; c++)
                         {
-                            const float *to = &g_geo_curr_positions[vertex * 4u];
-                            const float *move = &g_geo_borrow_moves[vertex * 3u];
-                            float *position = g_vertices[vertex].position;
-                            for (int c = 0; c < 3; c++)
-                            {
-                                position[c] = to[c] - move[c] * back;
-                            }
-                            position[3] = to[3];
+                            position[c] = to[c] - move[c] * back;
                         }
+                        position[3] = to[3];
                     }
                 }
             }

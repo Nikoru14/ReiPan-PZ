@@ -8640,6 +8640,95 @@ bool ResidentKeyLess(const GeometrySnapshotDraw &a, const GeometrySnapshotDraw &
     return a.key.flags < b.key.flags;
 }
 
+/* The centre of a streamed draw's vertices in a position snapshot (four floats
+ * per vertex), or false when the span is not all inside it. */
+bool StreamedDrawCentre(const std::vector<float> &positions,
+                        const GeometryDrawKey &key, float out[3])
+{
+    const size_t first = key.first_vertex;
+    const size_t count = key.vertex_count;
+    if (count == 0 || (first + count) * 4u > positions.size())
+    {
+        return false;
+    }
+    double sum[3] = {0.0, 0.0, 0.0};
+    for (size_t v = first; v < first + count; v++)
+    {
+        for (int c = 0; c < 3; c++)
+        {
+            sum[c] += positions[v * 4u + (size_t)c];
+        }
+    }
+    for (int c = 0; c < 3; c++)
+    {
+        out[c] = (float)(sum[c] / (double)count);
+    }
+    return true;
+}
+
+/*
+ * A run of like-shaped streamed draws (her two legs) pairs by where each one
+ * is, not by its place in the run.  The game draws such a run in whatever
+ * order its sort gave this frame -- turning or bending, the legs swap -- and
+ * pairing in order then blends the left leg from the right one: the extra
+ * frame drew both at the midpoint, on top of each other, and one leg seemed
+ * to vanish for that frame.  A row of identical curtain panels, swaying, is
+ * the same case.  Greedy by distance between centres, which for pieces this
+ * far apart is the right answer.  Returns false (pair them in order) when a
+ * centre cannot be had.
+ */
+bool PairStreamedRunByPosition(size_t curr_first, size_t prev_first, size_t run,
+                               const std::vector<uint32_t> &streamed)
+{
+    constexpr size_t kMaxRun = 32;   /* legs, curtain panels */
+    if (run < 2 || run > kMaxRun)
+    {
+        return false;
+    }
+    float curr_centre[kMaxRun][3];
+    float prev_centre[kMaxRun][3];
+    for (size_t k = 0; k < run; k++)
+    {
+        if (!StreamedDrawCentre(g_geo_curr_positions,
+                                g_geo_curr_draws[curr_first + k].key,
+                                curr_centre[k]) ||
+            !StreamedDrawCentre(g_geo_prev_positions,
+                                g_geo_prev_draws[streamed[prev_first + k]].key,
+                                prev_centre[k]))
+        {
+            return false;
+        }
+    }
+    bool taken[kMaxRun] = {};
+    for (size_t k = 0; k < run; k++)
+    {
+        size_t best = run;
+        float best_distance = 0.0f;
+        for (size_t m = 0; m < run; m++)
+        {
+            if (taken[m])
+            {
+                continue;
+            }
+            float distance = 0.0f;
+            for (int c = 0; c < 3; c++)
+            {
+                const float d = curr_centre[k][c] - prev_centre[m][c];
+                distance += d * d;
+            }
+            if (best == run || distance < best_distance)
+            {
+                best = m;
+                best_distance = distance;
+            }
+        }
+        taken[best] = true;
+        g_geo_pairs[curr_first + k] = (int32_t)streamed[prev_first + best];
+        g_geo_paired++;
+    }
+    return true;
+}
+
 void PairGeometryDraws()
 {
     const std::vector<GeometrySnapshotDraw> &prev = g_geo_prev_draws;
@@ -8711,6 +8800,12 @@ void PairGeometryDraws()
             prev_run++;
         }
         if (curr_run != prev_run)
+        {
+            i += curr_run - 1;
+            next = found + prev_run;
+            continue;
+        }
+        if (PairStreamedRunByPosition(i, found, curr_run, streamed))
         {
             i += curr_run - 1;
             next = found + prev_run;

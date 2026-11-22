@@ -8520,6 +8520,11 @@ constexpr float kGeometryMaxPairMove = 0.6f;
  * further in a tick than its own size when she runs, and judged by size alone
  * it went unpaired, drawn a tick ahead of the face or arm it sits on. */
 constexpr float kGeometryMinPairMove = 12.0f;
+/* How much closer, in mean squared distance, another candidate must be before
+ * it is taken over the draw order's own (4: half the distance), and a slack in
+ * squared world units so near-equal tiny costs do not flip. */
+constexpr double kGeometryPairSwitch = 4.0;
+constexpr double kGeometryPairSwitchSlack = 0.25;
 
 bool ModelJumped(const float *from, const float *to)
 {
@@ -8756,9 +8761,15 @@ void PairGeometryDraws()
         }
         const size_t begin = next > kGeometryPairBehind ? next - kGeometryPairBehind : 0;
         const size_t end = std::min(streamed.size(), next + kGeometryPairWindow);
-        size_t found = end;
-        double found_cost = 0.0;
-        float found_extent = 0.0f;
+        /* Two candidates: the first like-shaped one at or after the expected
+         * place -- the draw order's own answer, and right as long as the game
+         * keeps its order -- and the closest one anywhere in the look. */
+        size_t in_order = end;
+        double in_order_cost = 0.0;
+        float in_order_extent = 0.0f;
+        size_t closest = end;
+        double closest_cost = 0.0;
+        float closest_extent = 0.0f;
         for (size_t k = begin; k < end; k++)
         {
             const GeometrySnapshotDraw &candidate = prev[streamed[k]];
@@ -8772,12 +8783,35 @@ void PairGeometryDraws()
             {
                 continue;
             }
-            if (found == end || cost < found_cost)
+            if (k >= next && in_order == end)
             {
-                found = k;
-                found_cost = cost;
-                found_extent = extent;
+                in_order = k;
+                in_order_cost = cost;
+                in_order_extent = extent;
             }
+            if (closest == end || cost < closest_cost)
+            {
+                closest = k;
+                closest_cost = cost;
+                closest_extent = extent;
+            }
+        }
+        /* The order's answer stands unless another is clearly closer -- at
+         * most half its distance.  Her face is many small like-shaped patches
+         * side by side, and walking she moves further in a tick than one patch
+         * is from the next: by distance alone each took its neighbour, and the
+         * extra frame tore her face apart.  Her legs, swapped in the sort, or
+         * two light bands across a curtain are far further apart than that. */
+        size_t found = in_order;
+        double found_cost = in_order_cost;
+        float found_extent = in_order_extent;
+        if (closest != end &&
+            (in_order == end ||
+             in_order_cost > kGeometryPairSwitch * closest_cost + kGeometryPairSwitchSlack))
+        {
+            found = closest;
+            found_cost = closest_cost;
+            found_extent = closest_extent;
         }
         if (found == end)
         {

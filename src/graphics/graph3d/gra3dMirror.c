@@ -507,8 +507,8 @@ static void gra3dCalcMirrorMatrix(void)
     vNormal[1] *= fLen;
     vNormal[2] *= fLen;
 
-    // The rotation axis: up x normal, or y when the normal is -up already.
-    if (vNormal[0] == vUp[0] && vNormal[1] == vUp[1] && vNormal[2] == vUp[2])
+    // Either parallel normal needs a fallback axis: its cross product is zero.
+    if (vNormal[0] == vUp[0] && vNormal[1] == vUp[1])
     {
         memcpy(vAxis, vAxisDflt, sizeof(vAxis));
     }

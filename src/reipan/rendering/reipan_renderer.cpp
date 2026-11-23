@@ -31,6 +31,7 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1619,6 +1620,146 @@ FrameCamera g_frame_cameras[kMaxFrameCameras];
 int g_frame_camera_count;
 int g_frame_camera = -1;
 int g_frame_final_camera = -1;
+
+/*
+ * The draw inspector (overlay: Debug > Diagnostics / A-B > Draw inspector).
+ *
+ * Finds which draw a missing or wrong piece of the picture is: one draw of
+ * the frame, by its index in the frame's list, can be left out of the main
+ * pass, and every draw is described in a line -- what made it, its texture,
+ * blend, depth and alpha test, its camera and where it is -- for the overlay
+ * and, on request, for the log.  Off (nothing hidden, the inspector closed)
+ * it costs one comparison a draw.
+ */
+std::mutex g_diag_mutex;
+int g_diag_hide_draw = -1;
+bool g_diag_hide_mirror = false;
+bool g_diag_hide_blended_streams = false;
+bool g_diag_describe = false;
+bool g_diag_log_next = false;
+std::vector<std::string> g_diag_lines;
+
+const char *DiagBlendName(GsBlendMode mode)
+{
+    switch (mode)
+    {
+        case GS_BLEND_ALPHA: return "alpha";
+        case GS_BLEND_ADD: return "add";
+        case GS_BLEND_ADD_ONE: return "add1";
+        case GS_BLEND_SUB: return "sub";
+        case GS_BLEND_DST_DECAY: return "decay";
+        case GS_BLEND_SRC_ONLY: return "src";
+        case GS_BLEND_DST_ADD: return "dstadd";
+        default: return "other";
+    }
+}
+
+/* Whether the main pass leaves draw `index` out. */
+bool DiagHidden(size_t index, const DrawCommand &draw)
+{
+    if (g_diag_hide_draw >= 0 && (size_t)g_diag_hide_draw == index)
+    {
+        return true;
+    }
+    if (g_diag_hide_mirror && draw.camera >= 0 && g_frame_final_camera >= 0 &&
+        draw.camera != g_frame_final_camera)
+    {
+        return true;
+    }
+    if (g_diag_hide_blended_streams && draw.stream_source != nullptr &&
+        draw.blend_mode != GS_BLEND_SRC_ONLY)
+    {
+        return true;
+    }
+    return false;
+}
+
+std::string DiagDescribe(size_t index, const DrawCommand &draw)
+{
+    const char *kind = draw.shadow_caster     ? "shadow-caster"
+                       : draw.shadow_receiver ? "shadow-recv"
+                       : draw.resident_mesh   ? "resident"
+                       : draw.stream_source != nullptr ? "character"
+                       : draw.transform_mesh  ? "streamed"
+                       : draw.source == DRAW_SOURCE_SKY ? "sky"
+                       : draw.source == DRAW_SOURCE_BILLBOARD ? "billboard"
+                                                          : "2d";
+    /* Where it is: a mesh's centre through its model, or the model's origin. */
+    float at[3] = {0.0f, 0.0f, 0.0f};
+    if (draw.transform_mesh)
+    {
+        float local[3] = {0.0f, 0.0f, 0.0f};
+        const size_t first = draw.first_vertex;
+        const size_t count = draw.resident_mesh ? 0 : draw.vertex_count;
+        if (count != 0 && first + count <= g_vertices.size())
+        {
+            for (size_t v = first; v < first + count; v++)
+            {
+                for (int c = 0; c < 3; c++)
+                {
+                    local[c] += g_vertices[v].position[c];
+                }
+            }
+            for (int c = 0; c < 3; c++)
+            {
+                local[c] /= (float)count;
+            }
+        }
+        for (int c = 0; c < 3; c++)
+        {
+            at[c] = local[0] * draw.model[0 + c] + local[1] * draw.model[4 + c] +
+                    local[2] * draw.model[8 + c] + draw.model[12 + c];
+        }
+    }
+    char line[320];
+    std::snprintf(
+        line, sizeof(line),
+        "#%zu %s tex %p %dx%d verts %u idx %u | %s z%s%s%s atst %s%.2f | cam %d%s "
+        "| at (%.1f, %.1f, %.1f) src %p%s%s",
+        index, kind, (const void *)draw.texture, draw.texture_width,
+        draw.texture_height, draw.vertex_count, draw.index_count,
+        DiagBlendName(draw.blend_mode), draw.depth_test ? "test" : "off",
+        draw.depth_test ? (draw.depth_compare == GS_DEPTH_GEQUAL ? ">=" : "?") : "",
+        draw.depth_write ? " write" : " nowrite",
+        draw.alpha_test[0] != 0.0f ? "on " : "off ", draw.alpha_test[1],
+        draw.camera,
+        (draw.camera >= 0 && g_frame_final_camera >= 0 &&
+         draw.camera != g_frame_final_camera)
+            ? " (mirror)" : "",
+        at[0], at[1], at[2], draw.stream_source,
+        draw.fragment_lighting ? " fraglit" : "", draw.clipped ? " clipped" : "");
+    return line;
+}
+
+/* Once a frame, with the list final: the descriptions the overlay shows, and
+ * the log's copy when one was asked for. */
+void DiagCaptureFrame()
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    if (!g_diag_describe && !g_diag_log_next)
+    {
+        return;
+    }
+    g_diag_describe = false;  /* the overlay asks again each frame it is open */
+    g_diag_lines.clear();
+    for (size_t i = 0; i < g_draws.size(); i++)
+    {
+        g_diag_lines.push_back(DiagDescribe(i, g_draws[i]));
+    }
+    if (g_diag_log_next)
+    {
+        g_diag_log_next = false;
+        SDL_Log("Draw inspector: %zu draws, frame camera %d, hidden #%d%s%s",
+                g_draws.size(), g_frame_final_camera, g_diag_hide_draw,
+                g_diag_hide_mirror ? ", mirror draws hidden" : "",
+                g_diag_hide_blended_streams ? ", blended character draws hidden" : "");
+        for (const std::string &line : g_diag_lines)
+        {
+            SDL_Log("  %s", line.c_str());
+        }
+    }
+}
+
 /*
  * The sky's camera, for the draws effect_oth.c's EffSoraDrawSub() tags
  * CAMERA_FOLLOW_SKY.
@@ -11230,6 +11371,10 @@ void DrawQueuedSprites(SDL_GPURenderPass *pass, SDL_GPUCommandBuffer *cmd,
         {
             continue;
         }
+        if (DiagHidden(draw_index, draw))
+        {
+            continue;
+        }
         if (visibility && (!draw.depth_test || !draw.depth_write))
         {
             continue;
@@ -12278,6 +12423,11 @@ void RecordFramePasses(SDL_GPUCommandBuffer *cmd,
     const uint64_t record_start =
         ReiPan_ProfilerBeginPhase(REIPAN_PROFILE_RENDERER_RECORD);
 
+    if (!repeat)
+    {
+        DiagCaptureFrame();
+    }
+
     /*
      * Where the frame is composited.
      *
@@ -13311,6 +13461,64 @@ bool PresentLogicalFrame()
 }
 
 extern "C" {
+
+void ReiPan_RendererDiagSetHiddenDraw(int index)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    g_diag_hide_draw = index < 0 ? -1 : index;
+}
+
+int ReiPan_RendererDiagGetHiddenDraw(void)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    return g_diag_hide_draw;
+}
+
+void ReiPan_RendererDiagSetHide(int mirror, int blended_characters)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    g_diag_hide_mirror = mirror != 0;
+    g_diag_hide_blended_streams = blended_characters != 0;
+}
+
+void ReiPan_RendererDiagGetHide(int *mirror, int *blended_characters)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    if (mirror != nullptr)
+        *mirror = g_diag_hide_mirror ? 1 : 0;
+    if (blended_characters != nullptr)
+        *blended_characters = g_diag_hide_blended_streams ? 1 : 0;
+}
+
+void ReiPan_RendererDiagSetDescribe(int on)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    g_diag_describe = on != 0;
+}
+
+void ReiPan_RendererDiagLogNextFrame(void)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    g_diag_log_next = true;
+}
+
+int ReiPan_RendererDiagDrawCount(void)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    return (int)g_diag_lines.size();
+}
+
+int ReiPan_RendererDiagDescribeDraw(int index, char *out, size_t size)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    if (out == nullptr || size == 0 || index < 0 ||
+        (size_t)index >= g_diag_lines.size())
+    {
+        return 0;
+    }
+    SDL_strlcpy(out, g_diag_lines[(size_t)index].c_str(), size);
+    return 1;
+}
 
 void ReiPan_RendererGetViewExtend(float *ext_x, float *ext_y)
 {

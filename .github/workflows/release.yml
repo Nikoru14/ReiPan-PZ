@@ -11,6 +11,10 @@ on:
       version:
         description: 'Version, e.g. 0.1.0-PZ (tag v<version>)'
         required: true
+      draft:
+        description: 'Create it as a draft, seen only with write access (publish it later)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -59,8 +63,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
           NAME: ${{ needs.check.outputs.name }}
+          DRAFT: ${{ inputs.draft }}
         run: |
           (cd dist && zip -qr9 "${NAME}.zip" "${NAME}")
+          draft=()
+          [ "$DRAFT" = "true" ] && draft=(--draft)
           gh release create "v${VERSION}" "dist/${NAME}.zip" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "ReiPan v${VERSION}" --notes-file "release-notes/v${VERSION}.md"
+            --title "ReiPan v${VERSION}" --notes-file "release-notes/v${VERSION}.md" \
+            "${draft[@]}"

@@ -1,0 +1,38 @@
+name: Release visibility
+
+# Hide published releases as drafts, or publish drafts again.  A draft is seen
+# only by people with write access; its notes and attached files are kept, and
+# publishing it again restores it as it was.  Its tag stays in the repository.
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Release tags, separated by spaces, or "all" for every release'
+        required: true
+        default: all
+      draft:
+        description: 'Make them drafts (unticked: publish them)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  visibility:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set the releases' visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAGS: ${{ inputs.tags }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          if [ "$TAGS" = "all" ]; then
+            TAGS=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 \
+                     --json tagName --jq '.[].tagName')
+          fi
+          for tag in $TAGS; do
+            echo "${tag}: draft=${DRAFT}"
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft="$DRAFT"
+          done

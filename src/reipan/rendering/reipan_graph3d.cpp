@@ -3158,6 +3158,8 @@ void DrawRuntimeMesh(SGDFILEHEADER *owner,
          * normals to the GPU, while only exceptional decode/cache/upload
          * fallbacks pay the old per-vertex CPU cost. */
         build_cpu_colors();
+        ReiPan_RendererSetNextMeshStreamInfo(
+            mesh_family | (post_positions != nullptr ? 0x100 : 0));
         MeshStreamScope stream(tex0, stream_capacity, local_world,
                                fragment_lights_p, bound_texture, mesh);
         if (!stream)

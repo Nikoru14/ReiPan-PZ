@@ -2475,7 +2475,7 @@ void DrawDrawInspectorMenu()
     static int step_kind = 1;
     const int count = ReiPan_RendererDiagDrawCount();
     int hidden = ReiPan_RendererDiagGetHiddenDraw();
-    char line[320];
+    char line[640];
 
     const auto is_stepped = [&line](int index) {
         if (step_kind == 0)

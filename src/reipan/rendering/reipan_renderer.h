@@ -1135,6 +1135,9 @@ void ReiPan_RendererCountTextureReplay(void);
  * at its partner.  Taken by the next stream begun, whether or not it starts;
  * NULL (the default) leaves the stream unnamed. */
 void ReiPan_RendererSetNextMeshStreamSource(const void *source);
+/* Draw inspector: a tag for the next stream (the SGD mesh family, 0x100 when
+ * it reads skinned positions), shown with its draw. */
+void ReiPan_RendererSetNextMeshStreamInfo(int info);
 void ReiPan_RendererAppendMeshTriangle(
     unsigned int stream,
     const ReiPanMeshVertexInput vertices[3]);

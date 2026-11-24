@@ -11,6 +11,7 @@
 #include "graphics/motion/motion.h"
 
 #include <math.h>                       // sqrtf
+#include <stdio.h>                      // printf
 #include <string.h>                     // memcpy, memset, strncmp
 #include <vector>
 
@@ -1333,6 +1334,41 @@ void ShpPhysicsMotion::Calc()
 
     sceVu0CopyMatrix(lw, coord->matLocalWorld);
     sceVu0ApplyMatrix(pos, lw, prm->point);
+
+    // PC: the spring keeps its offset and velocity from step to step, so one
+    // non-finite bone matrix (a frame's NaN anywhere up the skeleton) made
+    // them NaN for good, and Pose() added NaN times the hair's delta sets
+    // into the mesh: the back of Rei's hair gone until the model reloaded
+    // (a save load), all through a night.  The PS2 has no NaN to keep.  A
+    // step whose bone point is not finite is skipped, and a spring that is
+    // not finite starts again at rest.
+    if (!(isfinite(pos[0]) && isfinite(pos[1]) && isfinite(pos[2]) && isfinite(pos[3])))
+    {
+        static int told;
+
+        if (told++ < 8)
+            printf("motion: shape spring (mesh %d bone %d): bone point not finite, step skipped\n",
+                   mesh, (int)bone);
+        return;
+    }
+    for (i = 0; i < 4; i++)
+    {
+        if (!(isfinite(offset[i]) && isfinite(vel[i]) && isfinite(prev[i])))
+        {
+            static const sceVu0FVECTOR rest = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+            static int told;
+
+            if (told++ < 8)
+                printf("motion: shape spring (mesh %d bone %d): not finite, back at rest\n",
+                       mesh, (int)bone);
+            MotCopyVec(offset, rest);
+            MotCopyVec(vel, rest);
+            MotCopyVec(prev, pos);
+            break;
+        }
+    }
+
     for (i = 0; i < 4; i++)
         d[i] = pos[i] - prev[i];
     MotCopyVec(prev, pos);
@@ -1357,8 +1393,11 @@ void ShpPhysicsMotion::Calc()
 
     for (i = 0; i < 4; i++)
     {
+        // PC: an axis the inverse made non-finite pushes nothing this step.
+        const float push = isfinite(local[i]) ? local[i] : 0.0f;
+
         vel[i]    = (vel[i] + offset[i] * -prm->spring) * prm->damp;
-        offset[i] = offset[i] + vel[i] + local[i];
+        offset[i] = offset[i] + vel[i] + push;
     }
     sceVu0ClampVector(offset, offset, -1.0f, 1.0f);   // sdata 0x371388 / 0x37138c
 }

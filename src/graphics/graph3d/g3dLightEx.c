@@ -21,6 +21,7 @@
  * ======================================================================== */
 
 #include "graphics/graph3d/g3dLightEx.h"
+#include "common/vu0math.h"          // PC: Vu0Rsqrt / Ps2Divf
 
 #include <math.h>                               // sqrtf
 #include <string.h>                             // memset
@@ -43,7 +44,7 @@ static inline float _Dot3(const float *a, const float *b)
 // (vmul.w by vf0.w).
 static inline void _Normalize(float *vDst, const float *vSrc)
 {
-    float fRcp = 1.0f / sqrtf(_Dot3(vSrc, vSrc));
+    float fRcp = Vu0Rsqrt(_Dot3(vSrc, vSrc));     // PC: PS2 rsqrt
     float w = vSrc[3];
 
     vDst[0] = vSrc[0] * fRcp;
@@ -452,7 +453,7 @@ void g3dSortLightForBoundingBoxByPowerOrder(int iNum, LIGHTCOMPAREDATA *aCD, G3D
             vD[2] = pL->vPosition[2] - avBB[8][2];
 
             aCD[i].pLight = pL;
-            aCD[i].fPower = (fColScale * pL->fMaxRange) / sqrtf(_Dot3(vD, vD));
+            aCD[i].fPower = Ps2Divf(fColScale * pL->fMaxRange, sqrtf(_Dot3(vD, vD)));   // PC: PS2 division
         }
     }
 

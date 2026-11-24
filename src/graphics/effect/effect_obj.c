@@ -1915,7 +1915,7 @@ void EffThunderSetLight(G3DLIGHT *light)
     light->vDiffuse[0] = 0.8f;
     light->vDiffuse[3] = 1.0f;          // 0x36e148
     light->vDiffuse[2] = 1.0f;
-    q = 1.0f / sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);     // vrsqrt
+    q = Vu0Rsqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);     // vrsqrt (PC: PS2 rsqrt)
     light->vDirection[0] = dir[0] * q;
     light->vDirection[1] = dir[1] * q;
     light->vDirection[2] = dir[2] * q;
@@ -3548,7 +3548,7 @@ int LANTERN::PushByPlayer(float r, float *ppos, float *pmove)
         return 0;
 
     for (i = 0; i < 3; i++)
-        d[i] *= 1.0f / dist;
+        d[i] *= Ps2Divf(1.0f, dist);            // PC: PS2 division
     push = r - dist;
     RotVectorY(-1.57079637f, t, d);
     for (i = 0; i < 3; i++)
@@ -3584,7 +3584,7 @@ int LANTERN::Collide(LANTERN *b)
 
     push = (11.6f - dist) * 0.5f;
     for (i = 0; i < 3; i++)
-        d[i] = d[i] * (1.0f / dist) * push;
+        d[i] = d[i] * Ps2Divf(1.0f, dist) * push;   // PC: PS2 division
     for (i = 0; i < 3; i++)
     {
         pos[i] += d[i];

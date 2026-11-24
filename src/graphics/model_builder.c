@@ -13,6 +13,7 @@
  *  stands for each set.
  * ======================================================================== */
 #include "graphics/model_builder.h"
+#include "common/vu0math.h"          // PC: Vu0Rsqrt / Ps2Divf
 
 #include <float.h>                      // FLT_MAX
 #include <math.h>                       // sqrtf
@@ -263,7 +264,7 @@ static int ModelCollisionHitCapsule(MDL_CLD_BODY *body, float *a, float *b, floa
     axis[3] = 0.0f;
     CldNormalize(axis);
     len = CldDot(v1, v1);
-    t   = CldDot(axis, v0) / sqrtf(len);
+    t   = Ps2Divf(CldDot(axis, v0), sqrtf(len));    // PC: PS2 division (a point capsule)
     d[0] = v1[0] * t + v0[0] * -1.0f;
     d[1] = v1[1] * t + v0[1] * -1.0f;
     d[2] = v1[2] * t + v0[2] * -1.0f;

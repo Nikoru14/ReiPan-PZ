@@ -1235,7 +1235,7 @@ lights:
 
     CalcLightDir(dir_up, dir_dist, pitch, yaw, dir);
     {
-        float n = 1.0f / sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        float n = Vu0Rsqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);   // PC: PS2 rsqrt
 
         fl.vDirection[0] = dir[0] * n;
         fl.vDirection[1] = dir[1] * n;

@@ -16,6 +16,26 @@
 
 #include "sdk/libvu0.h"
 
+#include <float.h>                  // FLT_MAX
+#include <math.h>                   // sqrtf, signbit
+
+// PC: division as the PS2 does it.  The EE's FPU and the VU have no infinity
+// or NaN: x / 0 is the largest float, signed as the operands' signs say, and
+// so is rsqrt(0).  IEEE gives infinity, and infinity times the zero vector a
+// zero length belongs to is NaN, which a chain, a cloth or a position then
+// keeps for good -- the PS2 gets zero.  These give the PS2's answer.
+static inline float Vu0Rsqrt(float x)   // vrsqrt: 1 / sqrt(x)
+{
+    return x > 0.0f ? 1.0f / sqrtf(x) : FLT_MAX;
+}
+
+static inline float Ps2Divf(float a, float b)   // div.s / vdiv: a / b
+{
+    if (b != 0.0f)
+        return a / b;
+    return (signbit(a) != signbit(b)) ? -FLT_MAX : FLT_MAX;
+}
+
 // Rotate src about one axis by rot (normalised first) into dst.
 void  RotVectorX(float rot, float *dst, float *src);
 void  RotVectorY(float rot, float *dst, float *src);

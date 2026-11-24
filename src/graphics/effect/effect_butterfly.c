@@ -107,7 +107,7 @@ static int  ButterflyParticleUpdate(BUTTERFLY_PARTICLE *part);
 // vmulq.xyz): xyz scaled to unit length, w kept.
 static inline void ButterflyNormalizeXYZ(float *out, const float *v)
 {
-    float q = 1.0f / sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    float q = Vu0Rsqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);     // PC: PS2 rsqrt
 
     out[0] = v[0] * q;
     out[1] = v[1] * q;

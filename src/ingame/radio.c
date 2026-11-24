@@ -171,7 +171,7 @@ float Radio::CalcFaceRate(const float *listen, const float *rot)
     dir[1] = pos[1] - listen[1];
     dir[2] = pos[2] - listen[2];
     dir[3] = pos[3] - listen[3];
-    q      = 1.0f / sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    q      = Vu0Rsqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);   // PC: PS2 rsqrt
     dir[0] *= q;
     dir[1] *= q;
     dir[2] *= q;

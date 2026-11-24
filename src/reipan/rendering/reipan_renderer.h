@@ -1116,6 +1116,8 @@ void ReiPan_RendererDiagSetHiddenDraw(int index);
 int  ReiPan_RendererDiagGetHiddenDraw(void);
 void ReiPan_RendererDiagSetHide(int mirror, int blended_characters);
 void ReiPan_RendererDiagGetHide(int *mirror, int *blended_characters);
+void ReiPan_RendererDiagSetHideBillboards(int on);
+int  ReiPan_RendererDiagGetHideBillboards(void);
 void ReiPan_RendererDiagSetDescribe(int on);
 void ReiPan_RendererDiagLogNextFrame(void);
 int  ReiPan_RendererDiagDrawCount(void);

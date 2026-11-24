@@ -1635,6 +1635,7 @@ std::mutex g_diag_mutex;
 int g_diag_hide_draw = -1;
 bool g_diag_hide_mirror = false;
 bool g_diag_hide_blended_streams = false;
+bool g_diag_hide_billboards = false;
 bool g_diag_describe = false;
 bool g_diag_log_next = false;
 std::vector<std::string> g_diag_lines;
@@ -1668,6 +1669,10 @@ bool DiagHidden(size_t index, const DrawCommand &draw)
     }
     if (g_diag_hide_blended_streams && draw.stream_source != nullptr &&
         draw.blend_mode != GS_BLEND_SRC_ONLY)
+    {
+        return true;
+    }
+    if (g_diag_hide_billboards && draw.source == DRAW_SOURCE_BILLBOARD)
     {
         return true;
     }
@@ -1725,7 +1730,7 @@ std::string DiagDescribe(size_t index, const DrawCommand &draw)
         draw.camera,
         (draw.camera >= 0 && g_frame_final_camera >= 0 &&
          draw.camera != g_frame_final_camera)
-            ? " (mirror)" : "",
+            ? " (other camera)" : "",
         at[0], at[1], at[2], draw.stream_source,
         draw.fragment_lighting ? " fraglit" : "", draw.clipped ? " clipped" : "");
     return line;
@@ -1749,10 +1754,11 @@ void DiagCaptureFrame()
     if (g_diag_log_next)
     {
         g_diag_log_next = false;
-        SDL_Log("Draw inspector: %zu draws, frame camera %d, hidden #%d%s%s",
+        SDL_Log("Draw inspector: %zu draws, frame camera %d, hidden #%d%s%s%s",
                 g_draws.size(), g_frame_final_camera, g_diag_hide_draw,
                 g_diag_hide_mirror ? ", mirror draws hidden" : "",
-                g_diag_hide_blended_streams ? ", blended character draws hidden" : "");
+                g_diag_hide_blended_streams ? ", blended character draws hidden" : "",
+                g_diag_hide_billboards ? ", effect sprites hidden" : "");
         for (const std::string &line : g_diag_lines)
         {
             SDL_Log("  %s", line.c_str());
@@ -13488,6 +13494,18 @@ void ReiPan_RendererDiagGetHide(int *mirror, int *blended_characters)
         *mirror = g_diag_hide_mirror ? 1 : 0;
     if (blended_characters != nullptr)
         *blended_characters = g_diag_hide_blended_streams ? 1 : 0;
+}
+
+void ReiPan_RendererDiagSetHideBillboards(int on)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    g_diag_hide_billboards = on != 0;
+}
+
+int ReiPan_RendererDiagGetHideBillboards(void)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    return g_diag_hide_billboards ? 1 : 0;
 }
 
 void ReiPan_RendererDiagSetDescribe(int on)

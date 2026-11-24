@@ -179,7 +179,7 @@ static void PeepCalcPivot(float *pivot, float *rot, float *up)
     len = sqrtf((v->cam_target[0] - v->cam_pos[0]) * (v->cam_target[0] - v->cam_pos[0])
               + (v->cam_target[1] - v->cam_pos[1]) * (v->cam_target[1] - v->cam_pos[1])
               + (v->cam_target[2] - v->cam_pos[2]) * (v->cam_target[2] - v->cam_pos[2]));
-    sceVu0ScaleVector(pivot, pivot, v->look_dist / len);
+    sceVu0ScaleVector(pivot, pivot, Ps2Divf(v->look_dist, len));   // PC: PS2 division
     sceVu0AddVector(pivot, pivot, v->cam_pos);
     pivot[3] = 1.0f;                    // sdata 0x371808
 

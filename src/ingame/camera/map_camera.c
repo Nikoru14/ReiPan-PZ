@@ -1196,7 +1196,7 @@ static void PlyrDamageCameraFollow(void)
     {
         len = MapCamLength(mid, apcm->mpos);
         sceVu0SubVector(dir, apcm->mpos, mid);
-        sceVu0ScaleVector(dir, dir, ((apcm->dist2 - apcm->dist) * (1.0f - t) + apcm->dist) / len);
+        sceVu0ScaleVector(dir, dir, Ps2Divf((apcm->dist2 - apcm->dist) * (1.0f - t) + apcm->dist, len));   // PC: PS2 division
         sceVu0AddVector(pos, mid, dir);
     }
 

@@ -13,7 +13,8 @@
  * ======================================================================== */
 #include "graphics/mmanage.h"
 
-#include <math.h>                       // sqrtf
+#include <float.h>                      // FLT_MAX
+#include <math.h>                       // sqrtf, isfinite
 #include <string.h>                     // memcpy, strcmp
 
 #include "common/heapctrl.h"            // heapCtrlMalloc / heapCtrlFree
@@ -60,6 +61,17 @@ alignas(16) sceVu0FMATRIX mdl_flip_yz = {
 static inline float CcsLength(const float *v)
 {
     return sqrtf((v[0] * v[0] + v[1] * v[1]) + v[2] * v[2]);
+}
+
+// PC: 1 / x as the PS2 does it.  Its FPU and VU have no infinity or NaN: a
+// division by zero gives the largest float, which times the zero vector that
+// had the zero length gives zero again.  IEEE gives infinity, and infinity
+// times zero is NaN -- a NaN that then never leaves the chain, so a hair point
+// that once lands exactly on another (or on a collision capsule's axis) took
+// that piece of Rei's hair off for good.
+static inline float CcsRecip(float x)
+{
+    return x > 0.0f ? 1.0f / x : FLT_MAX;
 }
 
 // vopmula.xyz / vopmsub.xyz: out.xyz = a x b, out.w = a.w.
@@ -286,7 +298,7 @@ void ModelCcs::Update()
         d[1] = a->pos[1] - b->pos[1];
         d[2] = a->pos[2] - b->pos[2];
         len = CcsLength(d);
-        k = ((link[i].len - len) * CCS_LINK_STIFF) / len;
+        k = ((link[i].len - len) * CCS_LINK_STIFF) * CcsRecip(len);    // PC: PS2 division
         d[0] *= k;
         d[1] *= k;
         d[2] *= k;
@@ -344,6 +356,19 @@ void ModelCcs::Update()
     for (i = 0; i < point_num; i++)
         memcpy(point[i].prev, point[i].pos, sizeof(point[i].prev));
 
+    // PC: a chain that still went non-finite (through a coordinate or a
+    // collision shape rather than its own divisions) starts over at rest
+    // rather than staying broken; the PS2 cannot get here.
+    for (i = 0; i < point_num; i++)
+    {
+        if (!isfinite(point[i].pos[0]) || !isfinite(point[i].pos[1]) ||
+            !isfinite(point[i].pos[2]))
+        {
+            Reset();
+            break;
+        }
+    }
+
     SetCoordinate();
 }
 
@@ -375,7 +400,7 @@ void ModelCcs::SetCoordinate()
         m[0][0] = point[i + 1].pos[0] - point[i].pos[0];
         m[0][1] = point[i + 1].pos[1] - point[i].pos[1];
         m[0][2] = point[i + 1].pos[2] - point[i].pos[2];
-        s = 1.0f / CcsLength(m[0]);
+        s = CcsRecip(CcsLength(m[0]));                    // PC: PS2 division
         m[0][0] *= s;
         m[0][1] *= s;
         m[0][2] *= s;
@@ -524,7 +549,7 @@ void ModelCcs::SetWindDir()
     wind_dir[2] = r + r + -1.0f;
 
     // vrsqrt / vmul.w / vmulq.xyz: w = 0 * 1
-    s = 1.0f / CcsLength(wind_dir);
+    s = CcsRecip(CcsLength(wind_dir));                // PC: PS2 division
     wind_dir[0] *= s;
     wind_dir[1] *= s;
     wind_dir[2] *= s;

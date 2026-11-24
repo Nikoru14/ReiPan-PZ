@@ -636,7 +636,7 @@ static void SetEneDmgEffect2_Sub2(NEW_PERTICLE *np, float *bpos1, float *bpos2,
     }
 
     s = Vu0Sinf((np->cnt * 3.1415927f) / 180.0f);
-    f2 = sqrtf(1.0f - (1.0f - s) * (1.0f - s));
+    f2 = sqrtf(fabsf(1.0f - (1.0f - s) * (1.0f - s)));   // PC: the PS2 sqrt takes |x|
     if (np->cnt < 90.0f)
     {
         np->x = f2 * r1l;
@@ -809,7 +809,7 @@ void SetEneDmgEffect2_Sub(void)
 
             // The step SetEneDmgEffect2_Sub2 makes, run once at cnt 3.
             s = Vu0Sinf(0.05235988f);
-            f = sqrtf(1.0f - (1.0f - s) * (1.0f - s));
+            f = sqrtf(fabsf(1.0f - (1.0f - s) * (1.0f - s)));   // PC: the PS2 sqrt takes |x|
             np->x = f * r1l;
             np->y = Vu0Sinf(f * 1.5707964f) * np->n;
 
@@ -1955,7 +1955,7 @@ static int EneDmgParticleSuctionOne(ENEDMG_PARTICLE_ONE *pOne, float *StartPos, 
     int   ret = 0;
 
     s = Vu0Sinf((pOne->cnt_f * pi_2) / 90.0f);
-    f2 = 1.0f - sqrtf(1.0f - s * s);
+    f2 = 1.0f - sqrtf(fabsf(1.0f - s * s));   // PC: the PS2 sqrt takes |x|
     PosRate = f2 * L;
 
     pOne->rrad = Vu0Sinf((f2 + 1.0f) * pi_2) * pOne->rrad_max;

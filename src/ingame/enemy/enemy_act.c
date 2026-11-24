@@ -2613,7 +2613,10 @@ void EJobM06(ENEALG_WRK *alg)
     dist = EaDistXZ(ene->pos, node);
     mx   = -static_cast<CharModel *>(ene->mdl)->GetRootMove(0, ene->mot_attr);
     step = GetLength2D(mx, static_cast<CharModel *>(ene->mdl)->GetRootMove(2, ene->mot_attr));
-    if (ene->pos[1] != node[1] && (ene->flags2 & 8) == 0)
+    // PC: not with the ghost right above or below the node (dist 0): the PS2
+    // saturates step / 0 to the largest float, IEEE makes it infinite and the
+    // height NaN for good.
+    if (ene->pos[1] != node[1] && (ene->flags2 & 8) == 0 && dist > 0.0f)
         ene->pos[1] = ene->pos[1] - (step / dist) * (ene->pos[1] - node[1]);
     UnitGetTrgtRot(ene->pos, node, ene->rot_trgt, 2);
 
@@ -3733,7 +3736,8 @@ void EJobB24(ENEALG_WRK *alg)
     dist = EaDist3D(ene->pos, goal);
     step = -mdl->GetRootMove(0, ene->mot_attr);
     step = GetLength2D(step, mdl->GetRootMove(2, ene->mot_attr));
-    if (ene->pos[1] != goal[1] && (ene->flags2 & 8) == 0)
+    // PC: not at the goal itself (dist 0; see the route step above).
+    if (ene->pos[1] != goal[1] && (ene->flags2 & 8) == 0 && dist > 0.0f)
         ene->pos[1] -= (step / dist) * (ene->pos[1] - goal[1]);
     UnitGetTrgtRot(ene->pos, goal, ene->rot_trgt, 2);
     // callcheck: fptodp, fabs, dpcmp (the compare is done in double)

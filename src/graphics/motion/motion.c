@@ -11,6 +11,7 @@
 #include "graphics/motion/motion.h"
 
 #include <math.h>                       // sqrtf
+#include <stdio.h>                      // printf
 #include <string.h>                     // memcpy, memset, strncmp
 #include <vector>
 
@@ -933,11 +934,11 @@ float BmdMotion::CalcYaw(float *q0, float *q1)
     z0[3] = 1.0f;
 
     // VU0: xyz scaled by the reciprocal square root, w kept
-    len = 1.0f / sqrtf(z0[0] * z0[0] + z0[1] * z0[1] + z0[2] * z0[2]);
+    len = Vu0Rsqrt(z0[0] * z0[0] + z0[1] * z0[1] + z0[2] * z0[2]);    // PC: PS2 rsqrt
     z0[0] *= len;
     z0[1] *= len;
     z0[2] *= len;
-    len = 1.0f / sqrtf(z1[0] * z1[0] + z1[1] * z1[1] + z1[2] * z1[2]);
+    len = Vu0Rsqrt(z1[0] * z1[0] + z1[1] * z1[1] + z1[2] * z1[2]);    // PC: PS2 rsqrt
     z1[0] *= len;
     z1[1] *= len;
     z1[2] *= len;
@@ -1333,6 +1334,41 @@ void ShpPhysicsMotion::Calc()
 
     sceVu0CopyMatrix(lw, coord->matLocalWorld);
     sceVu0ApplyMatrix(pos, lw, prm->point);
+
+    // PC: the spring keeps its offset and velocity from step to step, so one
+    // non-finite bone matrix (a frame's NaN anywhere up the skeleton) made
+    // them NaN for good, and Pose() added NaN times the hair's delta sets
+    // into the mesh: the back of Rei's hair gone until the model reloaded
+    // (a save load), all through a night.  The PS2 has no NaN to keep.  A
+    // step whose bone point is not finite is skipped, and a spring that is
+    // not finite starts again at rest.
+    if (!(isfinite(pos[0]) && isfinite(pos[1]) && isfinite(pos[2]) && isfinite(pos[3])))
+    {
+        static int told;
+
+        if (told++ < 8)
+            printf("motion: shape spring (mesh %d bone %d): bone point not finite, step skipped\n",
+                   mesh, (int)bone);
+        return;
+    }
+    for (i = 0; i < 4; i++)
+    {
+        if (!(isfinite(offset[i]) && isfinite(vel[i]) && isfinite(prev[i])))
+        {
+            static const sceVu0FVECTOR rest = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+            static int told;
+
+            if (told++ < 8)
+                printf("motion: shape spring (mesh %d bone %d): not finite, back at rest\n",
+                       mesh, (int)bone);
+            MotCopyVec(offset, rest);
+            MotCopyVec(vel, rest);
+            MotCopyVec(prev, pos);
+            break;
+        }
+    }
+
     for (i = 0; i < 4; i++)
         d[i] = pos[i] - prev[i];
     MotCopyVec(prev, pos);
@@ -1344,7 +1380,7 @@ void ShpPhysicsMotion::Calc()
     // the rotation rows: xyz normalised (VU0 rsqrt), w kept
     for (i = 0; i < 3; i++)
     {
-        float len = 1.0f / sqrtf(lw[i][0] * lw[i][0] + lw[i][1] * lw[i][1] + lw[i][2] * lw[i][2]);
+        float len = Vu0Rsqrt(lw[i][0] * lw[i][0] + lw[i][1] * lw[i][1] + lw[i][2] * lw[i][2]);   // PC: PS2 rsqrt
 
         axis[i][0] = lw[i][0] * len;
         axis[i][1] = lw[i][1] * len;
@@ -1357,8 +1393,11 @@ void ShpPhysicsMotion::Calc()
 
     for (i = 0; i < 4; i++)
     {
+        // PC: an axis the inverse made non-finite pushes nothing this step.
+        const float push = isfinite(local[i]) ? local[i] : 0.0f;
+
         vel[i]    = (vel[i] + offset[i] * -prm->spring) * prm->damp;
-        offset[i] = offset[i] + vel[i] + local[i];
+        offset[i] = offset[i] + vel[i] + push;
     }
     sceVu0ClampVector(offset, offset, -1.0f, 1.0f);   // sdata 0x371388 / 0x37138c
 }
@@ -2121,7 +2160,7 @@ void ClothMotion::CalcLink()
         d[1] = a->pos[1] - b->pos[1];
         d[2] = a->pos[2] - b->pos[2];
         len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        s   = param->stiff[l->kind] * (l->len - len) / len;
+        s   = Ps2Divf(param->stiff[l->kind] * (l->len - len), len);    // PC: PS2 division
         ClothScaleXYZ(d, s);                        // vmulx.xyz
         ClothAddXYZ(a->force, d);
         b->force[0] -= d[0];                        // vsub.xyz
@@ -2199,6 +2238,14 @@ void ClothMotion::Pose()
         return;
 
     Calc(1);
+    // PC: a cloth whose points went non-finite starts over (the PS2 cannot
+    // make a NaN; see Ps2Divf()).
+    for (i = 0; i < num_point && reset_req == 0; i++)
+    {
+        if (!isfinite(point[i].pos[0]) || !isfinite(point[i].pos[1]) ||
+            !isfinite(point[i].pos[2]))
+            reset_req = 1;
+    }
     if (reset_req != 0)
     {
         Reset();
@@ -2330,15 +2377,15 @@ int ModelObject::IkLimb(float *target, int root, int mid, int end)
     lb   = sqrtf(b[0] * b[0] + b[1] * b[1]);
     tx2  = t[0] * t[0];
     ty2  = t[1] * t[1];
-    tang = Vu0Acosf(t[1] / sqrtf(tx2 + ty2));
+    tang = Vu0Acosf(Ps2Divf(t[1], sqrtf(tx2 + ty2)));     // PC: PS2 division
 
     MotCross3(n, ay, t);
     sign = 1.0f;                        // sdata 0x371378
     if (0.0f <= MotDot3(n, x))
         sign = -1.0f;                   // sdata 0x37137c
-    alpha = Vu0Acosf((la * la + tx2 + ty2 - lb * lb) / ((la + la) * sqrtf(tx2 + ty2)));
+    alpha = Vu0Acosf(Ps2Divf(la * la + tx2 + ty2 - lb * lb, (la + la) * sqrtf(tx2 + ty2)));   // PC: PS2 division
     rot0  = sign * tang - alpha;
-    beta  = Vu0Acosf((la * la + lb * lb - tx2 - ty2) / ((la + la) * lb));
+    beta  = Vu0Acosf(Ps2Divf(la * la + lb * lb - tx2 - ty2, (la + la) * lb));   // PC: PS2 division
     rot1  = 3.1415927f - beta;          // sdata 0x371380
 
     // The bones' present angles: the upper bone against +y, the knee.
@@ -2469,7 +2516,11 @@ float *motQuatSlerp(float t, float *out, float *q0, float *q1)
         return out;
     }
 
-    s  = sqrtf(1.0f - d * d);
+    // PC: the PS2's square root takes |x| (as Vu0Acosf's does).  Two keys a
+    // rounding apart give a dot a hair over 1 and 1 - d^2 a hair under 0:
+    // sqrtf made that NaN, and the bone -- Rei's neck, with her head and the
+    // hair spring hanging from it -- vanished for those frames.
+    s  = sqrtf(fabsf(1.0f - d * d));
     th = Vu0Acosf(d);
     w1 = Vu0Sinf(th * t) / s;
     w0 = Vu0Sinf(th - th * t) / s;

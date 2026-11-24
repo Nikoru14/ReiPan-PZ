@@ -13,7 +13,9 @@
  *  stands for each set.
  * ======================================================================== */
 #include "graphics/model_builder.h"
+#include "common/vu0math.h"          // PC: Vu0Rsqrt / Ps2Divf
 
+#include <float.h>                      // FLT_MAX
 #include <math.h>                       // sqrtf
 #include <string.h>                     // memset
 #include <new>                          // placement new on FF3's C++ heap (operator_new)
@@ -70,10 +72,14 @@ static inline void CldScale(float *v, float s)
     v[2] *= s;
 }
 
-// vrsqrt / vmulq.xyz: v.xyz / |v|.
+// vrsqrt / vmulq.xyz: v.xyz / |v|.  PC: a zero vector stays zero, as on the
+// PS2, whose VU gives the largest float for 1 / 0 (and zero times it is zero);
+// IEEE's infinity times zero is NaN, which a hair point then never sheds
+// (mmanage.c's CcsRecip()).
 static inline void CldNormalize(float *v)
 {
-    CldScale(v, 1.0f / sqrtf(CldDot(v, v)));
+    const float len2 = CldDot(v, v);
+    CldScale(v, len2 > 0.0f ? 1.0f / sqrtf(len2) : FLT_MAX);
 }
 
 // The end of every hit: with a push, d also gets the body's move times
@@ -258,7 +264,7 @@ static int ModelCollisionHitCapsule(MDL_CLD_BODY *body, float *a, float *b, floa
     axis[3] = 0.0f;
     CldNormalize(axis);
     len = CldDot(v1, v1);
-    t   = CldDot(axis, v0) / sqrtf(len);
+    t   = Ps2Divf(CldDot(axis, v0), sqrtf(len));    // PC: PS2 division (a point capsule)
     d[0] = v1[0] * t + v0[0] * -1.0f;
     d[1] = v1[1] * t + v0[1] * -1.0f;
     d[2] = v1[2] * t + v0[2] * -1.0f;

@@ -2470,14 +2470,21 @@ void DrawDrawInspectorMenu()
     }
     ReiPan_RendererDiagSetDescribe(1);
 
-    static bool characters_only = true;
+    /* Which draws Previous / Next step through: 0 all, 1 the characters'
+     * skinned pieces, 2 the effect sprites. */
+    static int step_kind = 1;
     const int count = ReiPan_RendererDiagDrawCount();
     int hidden = ReiPan_RendererDiagGetHiddenDraw();
-    char line[320];
+    char line[640];
 
-    const auto is_character = [&line](int index) {
+    const auto is_stepped = [&line](int index) {
+        if (step_kind == 0)
+        {
+            return true;
+        }
         return ReiPan_RendererDiagDescribeDraw(index, line, sizeof(line)) != 0 &&
-               SDL_strstr(line, " character ") != nullptr;
+               SDL_strstr(line, step_kind == 1 ? " character " : " billboard ") !=
+                   nullptr;
     };
     const auto step = [&](int from, int direction) {
         if (count <= 0)
@@ -2492,7 +2499,7 @@ void DrawDrawInspectorMenu()
                 index = count - 1;
             if (index >= count)
                 index = 0;
-            if (!characters_only || is_character(index))
+            if (is_stepped(index))
             {
                 return index;
             }
@@ -2501,7 +2508,13 @@ void DrawDrawInspectorMenu()
     };
 
     ImGui::Text("Draws in the last frame: %d", count);
-    ImGui::Checkbox("Characters only", &characters_only);
+    ImGui::TextDisabled("Step through:");
+    ImGui::SameLine();
+    ImGui::RadioButton("All", &step_kind, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("Characters", &step_kind, 1);
+    ImGui::SameLine();
+    ImGui::RadioButton("Effect sprites", &step_kind, 2);
     if (ImGui::Button("< Previous"))
     {
         hidden = step(hidden < 0 ? 0 : hidden, -1);
@@ -2550,12 +2563,18 @@ void DrawDrawInspectorMenu()
     bool hide_mirror = mirror != 0;
     bool hide_blended = blended != 0;
     const bool mirror_changed =
-        ImGui::Checkbox("Hide the mirror's reflected draws", &hide_mirror);
+        ImGui::Checkbox("Hide draws on another camera (mirror, shadow)", &hide_mirror);
     const bool blended_changed =
         ImGui::Checkbox("Hide blended character draws", &hide_blended);
     if (mirror_changed || blended_changed)
     {
         ReiPan_RendererDiagSetHide(hide_mirror ? 1 : 0, hide_blended ? 1 : 0);
+    }
+    bool hide_billboards = ReiPan_RendererDiagGetHideBillboards() != 0;
+    if (ImGui::Checkbox("Hide all effect sprites (mist, glows, particles)",
+                        &hide_billboards))
+    {
+        ReiPan_RendererDiagSetHideBillboards(hide_billboards ? 1 : 0);
     }
     if (ImGui::Button("Write every draw to reipan.log"))
     {

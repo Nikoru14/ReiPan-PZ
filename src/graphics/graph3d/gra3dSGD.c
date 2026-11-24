@@ -30,6 +30,7 @@
  * ======================================================================== */
 
 #include "graphics/graph3d/gra3dSGD.h"
+#include "common/vu0math.h"          // PC: Vu0Rsqrt / Ps2Divf
 
 #include <math.h>                               // sqrtf, fabsf
 #include <string.h>                             // memcpy, memcmp
@@ -2138,7 +2139,7 @@ template <int NUM> static void _CalcValidLightIndexByType(int *aiRet, int type, 
                 float dx        = pLight->vPosition[0] - avBB[8][0];
                 float dy        = pLight->vPosition[1] - avBB[8][1];
                 float dz        = pLight->vPosition[2] - avBB[8][2];
-                float fPower    = (fColScale * pLight->fMaxRange) / sqrtf(dx * dx + dy * dy + dz * dz);
+                float fPower    = Ps2Divf(fColScale * pLight->fMaxRange, sqrtf(dx * dx + dy * dy + dz * dz));   // PC: PS2 division
 
                 if (type != G3DLIGHT_SPOT || gra3dGetDrawParamI() == 0 || gra3dGetDrawParamF() <= fPower)
                 {

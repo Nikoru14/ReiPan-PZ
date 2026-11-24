@@ -500,6 +500,15 @@ struct DrawCommand
     /* What the stream drew, as ReiPan_RendererSetNextMeshStreamSource() named
      * it; NULL when unnamed. */
     const void *stream_source = nullptr;
+    /* Draw inspector: what the stream's maker said it is
+     * (ReiPan_RendererSetNextMeshStreamInfo()), and why triangles were
+     * clipped -- non-finite positions, or past the capacity -- with the first
+     * bad position. */
+    int stream_info = -1;
+    int clip_nonfinite = 0;
+    int clip_overflow = 0;
+    float clip_first_bad[3] = {0.0f, 0.0f, 0.0f};
+    int stream_submitted = 0;
 
     /*
      * The viewfinder surround, queued by ReiPan_RendererDrawFinderMask().  A
@@ -535,6 +544,11 @@ struct MeshStreamState
     Uint32 max_vertices = 0;
     int submitted_triangles = 0;
     int clipped_triangles = 0;
+    /* Why they were clipped, for the draw inspector: a non-finite position,
+     * or past the stream's capacity; and the first bad position seen. */
+    int nonfinite_triangles = 0;
+    int overflow_triangles = 0;
+    float first_bad[3] = {0.0f, 0.0f, 0.0f};
     bool discard_all = false;
     DrawCommand command{};
 };
@@ -1635,6 +1649,7 @@ std::mutex g_diag_mutex;
 int g_diag_hide_draw = -1;
 bool g_diag_hide_mirror = false;
 bool g_diag_hide_blended_streams = false;
+bool g_diag_hide_billboards = false;
 bool g_diag_describe = false;
 bool g_diag_log_next = false;
 std::vector<std::string> g_diag_lines;
@@ -1668,6 +1683,10 @@ bool DiagHidden(size_t index, const DrawCommand &draw)
     }
     if (g_diag_hide_blended_streams && draw.stream_source != nullptr &&
         draw.blend_mode != GS_BLEND_SRC_ONLY)
+    {
+        return true;
+    }
+    if (g_diag_hide_billboards && draw.source == DRAW_SOURCE_BILLBOARD)
     {
         return true;
     }
@@ -1725,10 +1744,26 @@ std::string DiagDescribe(size_t index, const DrawCommand &draw)
         draw.camera,
         (draw.camera >= 0 && g_frame_final_camera >= 0 &&
          draw.camera != g_frame_final_camera)
-            ? " (mirror)" : "",
+            ? " (other camera)" : "",
         at[0], at[1], at[2], draw.stream_source,
         draw.fragment_lighting ? " fraglit" : "", draw.clipped ? " clipped" : "");
-    return line;
+    std::string out = line;
+    if (draw.stream_info >= 0)
+    {
+        std::snprintf(line, sizeof(line), " | family 0x%02x%s", draw.stream_info & 0xff,
+                      (draw.stream_info & 0x100) != 0 ? " skinned" : " raw");
+        out += line;
+    }
+    if (draw.clipped)
+    {
+        std::snprintf(line, sizeof(line),
+                      " | dropped %d of %d triangles: %d non-finite (first %g, %g, %g), %d past capacity",
+                      draw.clip_nonfinite + draw.clip_overflow, draw.stream_submitted,
+                      draw.clip_nonfinite, draw.clip_first_bad[0], draw.clip_first_bad[1],
+                      draw.clip_first_bad[2], draw.clip_overflow);
+        out += line;
+    }
+    return out;
 }
 
 /* Once a frame, with the list final: the descriptions the overlay shows, and
@@ -1749,10 +1784,11 @@ void DiagCaptureFrame()
     if (g_diag_log_next)
     {
         g_diag_log_next = false;
-        SDL_Log("Draw inspector: %zu draws, frame camera %d, hidden #%d%s%s",
+        SDL_Log("Draw inspector: %zu draws, frame camera %d, hidden #%d%s%s%s",
                 g_draws.size(), g_frame_final_camera, g_diag_hide_draw,
                 g_diag_hide_mirror ? ", mirror draws hidden" : "",
-                g_diag_hide_blended_streams ? ", blended character draws hidden" : "");
+                g_diag_hide_blended_streams ? ", blended character draws hidden" : "",
+                g_diag_hide_billboards ? ", effect sprites hidden" : "");
         for (const std::string &line : g_diag_lines)
         {
             SDL_Log("  %s", line.c_str());
@@ -13490,6 +13526,18 @@ void ReiPan_RendererDiagGetHide(int *mirror, int *blended_characters)
         *blended_characters = g_diag_hide_blended_streams ? 1 : 0;
 }
 
+void ReiPan_RendererDiagSetHideBillboards(int on)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    g_diag_hide_billboards = on != 0;
+}
+
+int ReiPan_RendererDiagGetHideBillboards(void)
+{
+    std::lock_guard<std::mutex> lock(g_diag_mutex);
+    return g_diag_hide_billboards ? 1 : 0;
+}
+
 void ReiPan_RendererDiagSetDescribe(int on)
 {
     std::lock_guard<std::mutex> lock(g_diag_mutex);
@@ -18026,6 +18074,12 @@ void ReiPan_RendererInvalidateMeshCache(const void *owner)
 }
 
 const void *g_next_mesh_stream_source;
+int g_next_mesh_stream_info = -1;
+
+void ReiPan_RendererSetNextMeshStreamInfo(int info)
+{
+    g_next_mesh_stream_info = info;
+}
 
 void ReiPan_RendererSetNextMeshStreamSource(const void *source)
 {
@@ -18040,6 +18094,8 @@ unsigned int ReiPan_RendererBeginMeshStream(const sceGsTex0 *tex0,
 {
     const void *source = g_next_mesh_stream_source;
     g_next_mesh_stream_source = nullptr;
+    const int stream_info = g_next_mesh_stream_info;
+    g_next_mesh_stream_info = -1;
     if (expected_vertex_count <= 0 || (expected_vertex_count % 3) != 0 ||
         local_world == nullptr || !g_3d_camera_valid || !g_frame_active ||
         g_mesh_stream.token != 0 || !EnsureRenderer() ||
@@ -18061,6 +18117,7 @@ unsigned int ReiPan_RendererBeginMeshStream(const sceGsTex0 *tex0,
     pending.command.preserve_original_aspect = false;
     pending.command.transform_mesh = true;
     pending.command.stream_source = source;
+    pending.command.stream_info = stream_info;
     TagShadowPass(pending.command);
     SnapshotFragmentLights(pending.command, fragment_lights);
     ApplyGsDrawEnv(pending.command);
@@ -18135,6 +18192,30 @@ void ReiPan_RendererAppendMeshTriangle(
     if (!valid)
     {
         g_mesh_stream.clipped_triangles++;
+        if (!g_mesh_stream.discard_all &&
+            !(emitted <= (size_t)g_mesh_stream.max_vertices - 3u))
+        {
+            g_mesh_stream.overflow_triangles++;
+        }
+        else if (!g_mesh_stream.discard_all)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                const float *position = vertices[i].position;
+                if (position != nullptr &&
+                    !(std::isfinite(position[0]) && std::isfinite(position[1]) &&
+                      std::isfinite(position[2])))
+                {
+                    if (g_mesh_stream.nonfinite_triangles == 0)
+                    {
+                        for (int c = 0; c < 3; c++)
+                            g_mesh_stream.first_bad[c] = position[c];
+                    }
+                    g_mesh_stream.nonfinite_triangles++;
+                    break;
+                }
+            }
+        }
         return;
     }
 
@@ -18183,6 +18264,11 @@ void ReiPan_RendererCommitMeshStream(unsigned int stream)
     {
         g_mesh_stream.command.vertex_count = (Uint32)vertex_count;
         g_mesh_stream.command.clipped = g_mesh_stream.clipped_triangles != 0;
+        g_mesh_stream.command.clip_nonfinite = g_mesh_stream.nonfinite_triangles;
+        g_mesh_stream.command.clip_overflow = g_mesh_stream.overflow_triangles;
+        g_mesh_stream.command.stream_submitted = g_mesh_stream.submitted_triangles;
+        std::memcpy(g_mesh_stream.command.clip_first_bad, g_mesh_stream.first_bad,
+                    sizeof(g_mesh_stream.first_bad));
         g_draws.push_back(g_mesh_stream.command);
         g_mesh_direct_stream_vertices += vertex_count;
     }

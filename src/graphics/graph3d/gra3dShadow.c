@@ -1021,8 +1021,8 @@ static void _CalcDirection(void)
         {
             s_vDirection[c] = s_Light.vPosition[c] - s_avBB[8][c];
         }
-        fLen = 1.0f / sqrtf(s_vDirection[0] * s_vDirection[0] + s_vDirection[1] * s_vDirection[1] +
-                            s_vDirection[2] * s_vDirection[2]);
+        fLen = Vu0Rsqrt(s_vDirection[0] * s_vDirection[0] + s_vDirection[1] * s_vDirection[1] +
+                        s_vDirection[2] * s_vDirection[2]);     // PC: PS2 rsqrt
         for (c = 0; c < 3; c++)
         {
             s_vDirection[c] *= fLen;

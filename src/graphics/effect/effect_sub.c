@@ -1125,7 +1125,7 @@ void EffSpotLightSet(float inner, float outer, float p2, float p3, float *pos, f
 
     for (i = 0; i < 4; i++)
         eff_spot.pos[i] = pos[i];
-    q = 1.0f / sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);   // vrsqrt
+    q = Vu0Rsqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);   // vrsqrt (PC: PS2 rsqrt)
     eff_spot.dir[0] = dir[0] * q;
     eff_spot.dir[1] = dir[1] * q;
     eff_spot.dir[2] = dir[2] * q;

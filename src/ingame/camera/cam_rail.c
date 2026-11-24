@@ -249,7 +249,7 @@ static void CamRailSegHeight(float *p, const float *a, const float *b)
     float len = CamDistXZ(b, a);
     float d   = CamDistXZ(p, a);
 
-    p[1] = ((b[1] - a[1]) * d) / len + a[1];
+    p[1] = Ps2Divf((b[1] - a[1]) * d, len) + a[1];     // PC: PS2 division
 }
 
 // The XZ line through a and b: out = (A, B, C), A x + B z + C = 0.

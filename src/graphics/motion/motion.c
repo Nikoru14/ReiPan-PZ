@@ -2383,9 +2383,9 @@ int ModelObject::IkLimb(float *target, int root, int mid, int end)
     sign = 1.0f;                        // sdata 0x371378
     if (0.0f <= MotDot3(n, x))
         sign = -1.0f;                   // sdata 0x37137c
-    alpha = Vu0Acosf((la * la + tx2 + ty2 - lb * lb) / ((la + la) * sqrtf(tx2 + ty2)));
+    alpha = Vu0Acosf(Ps2Divf(la * la + tx2 + ty2 - lb * lb, (la + la) * sqrtf(tx2 + ty2)));   // PC: PS2 division
     rot0  = sign * tang - alpha;
-    beta  = Vu0Acosf((la * la + lb * lb - tx2 - ty2) / ((la + la) * lb));
+    beta  = Vu0Acosf(Ps2Divf(la * la + lb * lb - tx2 - ty2, (la + la) * lb));   // PC: PS2 division
     rot1  = 3.1415927f - beta;          // sdata 0x371380
 
     // The bones' present angles: the upper bone against +y, the knee.
@@ -2516,7 +2516,11 @@ float *motQuatSlerp(float t, float *out, float *q0, float *q1)
         return out;
     }
 
-    s  = sqrtf(1.0f - d * d);
+    // PC: the PS2's square root takes |x| (as Vu0Acosf's does).  Two keys a
+    // rounding apart give a dot a hair over 1 and 1 - d^2 a hair under 0:
+    // sqrtf made that NaN, and the bone -- Rei's neck, with her head and the
+    // hair spring hanging from it -- vanished for those frames.
+    s  = sqrtf(fabsf(1.0f - d * d));
     th = Vu0Acosf(d);
     w1 = Vu0Sinf(th * t) / s;
     w0 = Vu0Sinf(th - th * t) / s;

@@ -2,6 +2,7 @@
 #define REIPAN_RENDERER_H
 
 #include "../gs/reipan_gs_c.h"
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -1105,6 +1106,20 @@ const void *ReiPan_RendererResolveTexture(const sceGsTex0 *tex0);
  * port always has -- the A/B.  Live. */
 void ReiPan_RendererSetResidentTextures(int enable);
 int  ReiPan_RendererGetResidentTextures(void);
+
+/* The draw inspector (overlay: Diagnostics / A-B > Draw inspector): leave
+ * one draw of the frame (by its index in the frame's list, -1 for none), the
+ * mirror's reflected draws, or the blended character draws out of the main
+ * pass; describe each draw of the last frame in a line; and write them all to
+ * the log once. */
+void ReiPan_RendererDiagSetHiddenDraw(int index);
+int  ReiPan_RendererDiagGetHiddenDraw(void);
+void ReiPan_RendererDiagSetHide(int mirror, int blended_characters);
+void ReiPan_RendererDiagGetHide(int *mirror, int *blended_characters);
+void ReiPan_RendererDiagSetDescribe(int on);
+void ReiPan_RendererDiagLogNextFrame(void);
+int  ReiPan_RendererDiagDrawCount(void);
+int  ReiPan_RendererDiagDescribeDraw(int index, char *out, size_t size);
 
 /* For the profiler summary: the SGD bridge reports each model whose textures
  * it resolved, each TRI2 it then did not send to the GS, and each skipped run

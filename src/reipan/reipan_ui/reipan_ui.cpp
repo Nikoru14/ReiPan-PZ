@@ -2455,12 +2455,131 @@ void DrawAssistsMenu()
  * wrong can be pinned on that change or cleared of it.  A submenu because the
  * rows have to say what they leave running, and that makes them long.
  */
+/*
+ * Diagnostics / A-B > Draw inspector: step through the frame's draws leaving
+ * one out at a time, to find the one a missing piece of the picture is, and
+ * see what it is (ReiPan_RendererDiagSetHiddenDraw()).  "Characters only"
+ * steps through the characters' skinned pieces alone.  The list is the last
+ * frame's; the log gets all of it on request.
+ */
+void DrawDrawInspectorMenu()
+{
+    if (!ImGui::BeginMenu("Draw inspector"))
+    {
+        return;
+    }
+    ReiPan_RendererDiagSetDescribe(1);
+
+    static bool characters_only = true;
+    const int count = ReiPan_RendererDiagDrawCount();
+    int hidden = ReiPan_RendererDiagGetHiddenDraw();
+    char line[320];
+
+    const auto is_character = [&line](int index) {
+        return ReiPan_RendererDiagDescribeDraw(index, line, sizeof(line)) != 0 &&
+               SDL_strstr(line, " character ") != nullptr;
+    };
+    const auto step = [&](int from, int direction) {
+        if (count <= 0)
+        {
+            return -1;
+        }
+        int index = from;
+        for (int tries = 0; tries < count; tries++)
+        {
+            index += direction;
+            if (index < 0)
+                index = count - 1;
+            if (index >= count)
+                index = 0;
+            if (!characters_only || is_character(index))
+            {
+                return index;
+            }
+        }
+        return -1;
+    };
+
+    ImGui::Text("Draws in the last frame: %d", count);
+    ImGui::Checkbox("Characters only", &characters_only);
+    if (ImGui::Button("< Previous"))
+    {
+        hidden = step(hidden < 0 ? 0 : hidden, -1);
+        ReiPan_RendererDiagSetHiddenDraw(hidden);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Next >"))
+    {
+        hidden = step(hidden, 1);
+        ReiPan_RendererDiagSetHiddenDraw(hidden);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("-10"))
+    {
+        hidden = hidden - 10 < 0 ? 0 : hidden - 10;
+        ReiPan_RendererDiagSetHiddenDraw(hidden);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("+10"))
+    {
+        hidden = hidden + 10 >= count ? count - 1 : hidden + 10;
+        ReiPan_RendererDiagSetHiddenDraw(hidden);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Show all"))
+    {
+        hidden = -1;
+        ReiPan_RendererDiagSetHiddenDraw(-1);
+    }
+
+    if (hidden >= 0 && ReiPan_RendererDiagDescribeDraw(hidden, line, sizeof(line)))
+    {
+        ImGui::TextDisabled("Hidden now:");
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 40.0f);
+        ImGui::TextUnformatted(line);
+        ImGui::PopTextWrapPos();
+    }
+    else
+    {
+        ImGui::TextDisabled("Nothing hidden.");
+    }
+
+    int mirror = 0;
+    int blended = 0;
+    ReiPan_RendererDiagGetHide(&mirror, &blended);
+    bool hide_mirror = mirror != 0;
+    bool hide_blended = blended != 0;
+    const bool mirror_changed =
+        ImGui::Checkbox("Hide the mirror's reflected draws", &hide_mirror);
+    const bool blended_changed =
+        ImGui::Checkbox("Hide blended character draws", &hide_blended);
+    if (mirror_changed || blended_changed)
+    {
+        ReiPan_RendererDiagSetHide(hide_mirror ? 1 : 0, hide_blended ? 1 : 0);
+    }
+    if (ImGui::Button("Write every draw to reipan.log"))
+    {
+        ReiPan_RendererDiagLogNextFrame();
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Each draw of the next frame, one line each, with what\n"
+                          "is hidden now. Press it once where the picture is\n"
+                          "wrong and once where it is right.");
+    }
+
+    ImGui::EndMenu();
+}
+
 void DrawDiagnosticsMenu()
 {
     if (!ImGui::BeginMenu("Diagnostics / A-B"))
     {
         return;
     }
+
+    DrawDrawInspectorMenu();
+    ImGui::Separator();
 
     DrawRendererDebugViewItem(
         "Disable host 3D quads (simulation + PS2 packets continue)",

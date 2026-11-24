@@ -377,7 +377,7 @@ void ModelCcs::Update()
 // rows 1 / 2 from cross products with an up vector ((1, 0, 0) unless the
 // link points that way), row 3 coordinate 0's translation plus point i.
 // FF3 leaves w = 1 in rows 0 and 2 (it normalizes the point difference with
-// w = 1 and crosses from row 0); kept. Then every coordinate is marked for
+// w = 1 and crosses from row 0); the PC clears it (see below). Then every coordinate is marked for
 // recalculation.
 // FF3 0x0020fd08
 
@@ -420,6 +420,18 @@ void ModelCcs::SetCoordinate()
         up[3] = 0.0f;
         CcsCross(m[1], up, m[0]);
         CcsCross(m[2], m[0], m[1]);
+
+        // PC: the ROM leaves w = 1 in rows 0 and 2 (the normalised point
+        // difference's w, carried into row 2 by the cross product).  The
+        // VU1 never reads that column, but the host's renderer takes
+        // matLocalWorld as a full 4x4 into the model-view-projection, where
+        // those 1s land in the clip w: the chain's meshes -- the paper
+        // streamers (shide) on the rope in the Stained Corridor -- exploded
+        // into spikes across the screen.  An affine matrix's w column is
+        // (0, 0, 0, 1).
+        m[0][3] = 0.0f;
+        m[1][3] = 0.0f;
+        m[2][3] = 0.0f;
 
         m[3][0] = (0.0f + c[0].matLocalWorld[3][0]) + point[i].pos[0];
         m[3][1] = (0.0f + c[0].matLocalWorld[3][1]) + point[i].pos[1];

@@ -18122,6 +18122,26 @@ unsigned int ReiPan_RendererBeginMeshStream(const sceGsTex0 *tex0,
     SnapshotFragmentLights(pending.command, fragment_lights);
     ApplyGsDrawEnv(pending.command);
 
+    /* A local-to-world matrix is affine: its w column is (0, 0, 0, 1).  One
+     * that is not puts its stray terms into the clip w, and the mesh
+     * explodes into spikes -- ModelCcs's links had w = 1 in two rows (the
+     * paper streamers on the Stained Corridor's rope).  Said once per
+     * stream source, so another such matrix shows in the log. */
+    if (std::fabs(local_world[3]) + std::fabs(local_world[7]) +
+                std::fabs(local_world[11]) > 1.0e-4f ||
+        std::fabs(local_world[15] - 1.0f) > 1.0e-4f)
+    {
+        static int told;
+        if (told < 16)
+        {
+            told++;
+            SDL_Log("Renderer: a mesh's local-to-world matrix has w column "
+                    "(%g, %g, %g, %g), not (0, 0, 0, 1) (stream source %p)",
+                    local_world[3], local_world[7], local_world[11],
+                    local_world[15], source);
+        }
+    }
+
     /* Snapshot all draw state before the SGD walker can advance to another
      * mesh.  Option 1 reduced this to one matrix product per mesh. */
     MulMatrixRowMajor(pending.command.mvp, local_world,

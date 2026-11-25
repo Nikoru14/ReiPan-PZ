@@ -55,6 +55,7 @@
 #include "ingame/ingame_effect.h"     // IgEffectPlyrPutSet / IgEffectPlyrPutDelete (the player map-put)
 #include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 #include "reipan/io/reipan_game_mouse.h"   // PC: the mouse aims the Camera Obscura
+#include "reipan/io/reipan_gyro.h"         // PC: and so does a gamepad's gyro
 
 // ──────────────────────────────────────────────────────────────────────
 // Callees in runs whose file is not settled yet (unassigned@ in tus.json).
@@ -1682,6 +1683,33 @@ void PlyrTankMoveCtrl(void)
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// PC: this frame's turn from a gamepad's gyro, in radians (yaw right, pitch
+// up), as MioPan's finder takes it: an angle, not a rate, so not scaled by the
+// frame time. Scaled by how far the viewfinder is zoomed in (its fov rate,
+// FinderViewCameraCtrl; never past 1), so the world moves the same distance
+// under the hand, and while crawling as the stick and the mouse are. The
+// game's "Point of view" is the stick's; the gyro has its own inversions.
+
+static void PlyrFinderGyroTurn(float *yaw, float *pitch)
+{
+    float rate;
+
+    ReiPan_GyroRequestAim();
+    if (ReiPan_GyroLook(yaw, pitch) == 0)
+        return;
+
+    rate = GetPhotoModeWrk()->GetZoom() * (1.85f - GetPhotoModeWrk1e8()->GetDispRate());
+    if (rate > 1.0f)
+        rate = 1.0f;
+    else if (rate < 0.2f)
+        rate = 0.2f;
+    if ((ingame_wrk.plyr_wrk->flags & PLYR_FLG_8000000) != 0)
+        rate *= 0.600000024f;
+    *yaw *= rate;
+    *pitch *= rate;
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // PlyrFinderCtrl, the camera up: the right stick's x beyond 50 of 128
 // turns the player (2.2 degrees per frame at full, 4 with pad_key[5]; 0.6
 // times while crawling; within 25 degrees of hold_yaw while held), its y
@@ -1709,6 +1737,8 @@ void PlyrFinderMoveCtrl(void)
     GetStickRaw(5, &x, &y);
     float mouse_yaw = 0.0f;             // PC: the mouse's aim this frame
     float mouse_pitch = 0.0f;
+    float gyro_yaw = 0.0f;              // PC: the gyro's
+    float gyro_pitch = 0.0f;
 
     // FF3 compares in double: fabs((double)fx) against 50.0
     fx   = (float)x - 128.0f;
@@ -1723,8 +1753,8 @@ void PlyrFinderMoveCtrl(void)
         turn *= 0.600000024f;
     turn *= GetFrameTimeScale();
 
-    // PC: the mouse aims too, inside the same limits as the stick (the hold
-    // below, the pitch range further down).
+    // PC: the mouse and the gyro aim too, inside the same limits as the stick
+    // (the hold below, the pitch range further down).
     ReiPan_GameMouseRequestLook();
     ReiPan_GameMouseLook(&mouse_yaw, &mouse_pitch);
     if ((ingame_wrk.plyr_wrk->flags & PLYR_FLG_8000000) != 0)
@@ -1734,7 +1764,8 @@ void PlyrFinderMoveCtrl(void)
     }
     if (GetOptionWrk()->now.b09 == 1)
         mouse_pitch = -mouse_pitch;     // "Point of view: Reverse"
-    turn += mouse_yaw;
+    PlyrFinderGyroTurn(&gyro_yaw, &gyro_pitch);
+    turn += mouse_yaw + gyro_yaw;
     if (ingame_wrk.plyr_wrk->status == 4)
     {
         d = (ingame_wrk.plyr_wrk->rot[1] + turn) - ingame_wrk.plyr_wrk->hold_yaw;
@@ -1764,7 +1795,7 @@ void PlyrFinderMoveCtrl(void)
     if ((ingame_wrk.plyr_wrk->flags & PLYR_FLG_8000000) != 0)
         pitch *= 0.600000024f;
     pitch *= GetFrameTimeScale();
-    pitch += mouse_pitch;               // PC
+    pitch += mouse_pitch + gyro_pitch;  // PC
 
     limit = 1;
     up    = 0.0f;

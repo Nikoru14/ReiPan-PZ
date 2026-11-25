@@ -46,6 +46,7 @@
 #include "ingame/plyr/plyr_gauge.h"     // PlyrGaugeAdd
 #include "ingame/plyr/plyr_param.h"     // PlyrGetChargeMax, PlyrGetShotRange, PlyrGetShotRate, PlyrGetCamLvCharge
 #include "ingame/plyr/unit_ctl.h"       // UnitGetTrgtRot
+#include "reipan/gameplay/reipan_haptic_cues.h"     // PC: the Camera Obscura in the triggers
 #include "sdk/libcdvd.h"                // sceCdCLOCK, sceCdReadClock
 #include "sdk/libscf.h"                 // sceScfGetLocalTimefromRTC
 #include "system/os/system.h"           // GetPALMode
@@ -664,13 +665,21 @@ void PlyrShotChargeCtrl(void)
             }
         }
 
+        int steps = w1e8->GetNum() + w1e8->GetNumSub();     // PC
+
         if (!charged)
             w1e8->Drain(cur);
         w1e8->Main(w1e8->GetMax(cur, plyr->equip[0]));
+
+        // PC: each new step of the charge, harder as it fills
+        if (charged && w1e8->GetNum() + w1e8->GetNumSub() > steps)
+            ReiPan_HapticCue(REIPAN_CUE_CHARGE, (float)w1e8->pct / 100.0f);
     }
 
     plyr->sc_state_old = plyr->sc_state;
     plyr->sc_state = charged ? sc : 0;
+    if (plyr->sc_state > plyr->sc_state_old)    // PC: a shutter chance, or a fatal frame
+        ReiPan_HapticCue(REIPAN_CUE_CHANCE, plyr->sc_state == 2 ? 1.0f : 0.7f);
 
     if (plyr->sc_state != 0 && PhotoChargerIsReady(&pm->charger))
         PhotoWrk180SetBit4(GetPhotoModeWrk180(), 1);
@@ -799,6 +808,9 @@ void PlyrShotJudge(char lens)
 
     plyr->_250 = 0;
     PlyrShotScore(lens);
+
+    if (lens != 1)                      // PC: the shutter, harder for a hit
+        ReiPan_HapticCue(REIPAN_CUE_SHUTTER, strong ? 1.0f : (hit ? 0.7f : 0.4f));
 
     if (!EneAnyDmgReactBig() || alive == 0)
     {

@@ -14,6 +14,8 @@
 #include "../debug/reipan_warp.h"
 #include "../gameplay/reipan_over_shoulder.h"
 #include "../io/reipan_game_mouse.h"
+#include "../io/reipan_gyro.h"
+#include "../io/reipan_haptics.h"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -1131,7 +1133,7 @@ void PersistSettingsIfChanged()
     /* Every field is 4 bytes, so the struct has no padding and memcmp is a
      * valid comparison.  The assert is here to fail loudly if a future field
      * breaks that rather than letting the compare read indeterminate bytes. */
-    static_assert(sizeof(ReiPan_ConfigRenderer) == 36 * sizeof(int),
+    static_assert(sizeof(ReiPan_ConfigRenderer) == 37 * sizeof(int),
                   "ReiPan_ConfigRenderer gained padding; compare by field");
     static_assert(sizeof(ReiPan_ConfigTitleScene) ==
                       REIPAN_TITLE_NAME_MAX + 22 * sizeof(int),
@@ -1154,10 +1156,16 @@ void PersistSettingsIfChanged()
                   "ReiPan_ConfigCamera gained padding; compare by field");
     static_assert(sizeof(ReiPan_ConfigMouse) == 8 * sizeof(int),
                   "ReiPan_ConfigMouse gained padding; compare by field");
+    static_assert(sizeof(ReiPan_ConfigGyro) == 5 * sizeof(int),
+                  "ReiPan_ConfigGyro gained padding; compare by field");
+    static_assert(sizeof(ReiPan_ConfigRumble) == 4 * sizeof(int),
+                  "ReiPan_ConfigRumble gained padding; compare by field");
 
     ReiPan_ConfigRenderer before = reipan_config.renderer;
     ReiPan_ConfigCamera   camera_before = reipan_config.camera;
     ReiPan_ConfigMouse    mouse_before = reipan_config.mouse;
+    ReiPan_ConfigGyro     gyro_before = reipan_config.gyro;
+    ReiPan_ConfigRumble   rumble_before = reipan_config.rumble;
     ReiPan_ConfigCapture();
 
     const Uint64 now = SDL_GetTicks();
@@ -1166,7 +1174,11 @@ void PersistSettingsIfChanged()
         std::memcmp(&camera_before, &reipan_config.camera,
                     sizeof(camera_before)) != 0 ||
         std::memcmp(&mouse_before, &reipan_config.mouse,
-                    sizeof(mouse_before)) != 0)
+                    sizeof(mouse_before)) != 0 ||
+        std::memcmp(&gyro_before, &reipan_config.gyro,
+                    sizeof(gyro_before)) != 0 ||
+        std::memcmp(&rumble_before, &reipan_config.rumble,
+                    sizeof(rumble_before)) != 0)
     {
         g_settings_dirty_since = now != 0 ? now : 1;
         return;
@@ -2005,6 +2017,41 @@ void DrawGraphicsSettingsMenu()
         return;
     }
 
+    ImGui::TextDisabled("Graphics API");
+    {
+        const int backend = ReiPan_RendererGetBackend();
+        for (int i = 0; i < REIPAN_BACKEND_COUNT; i++)
+        {
+            if (ReiPan_RendererBackendIsAvailable(i) != 0 &&
+                ImGui::MenuItem(ReiPan_RendererGetBackendLabel(i), nullptr,
+                                backend == i))
+            {
+                ReiPan_RendererSetBackend(i);
+            }
+        }
+
+        const char *asked =
+            ReiPan_RendererGetBackendLabel(ReiPan_RendererGetBackend());
+        ImGui::TextDisabled(
+            "  drawing with %s",
+            ReiPan_RendererGetBackendLabel(ReiPan_RendererGetBackendActive()));
+        switch (ReiPan_RendererGetBackendStatus())
+        {
+        case REIPAN_BACKEND_STATUS_RESTART:
+            ImGui::TextDisabled("  restart ReiPan to switch to %s", asked);
+            break;
+        case REIPAN_BACKEND_STATUS_FALLBACK:
+            ImGui::TextDisabled("  %s could not be started", asked);
+            break;
+        case REIPAN_BACKEND_STATUS_OVERRIDDEN:
+            ImGui::TextDisabled("  SDL_GPU_DRIVER overrides this setting");
+            break;
+        default:
+            break;
+        }
+    }
+    ImGui::Separator();
+
     ImGui::TextDisabled("Render resolution");
     {
         int mode = REIPAN_RENDER_RES_MATCH_WINDOW;
@@ -2211,6 +2258,264 @@ void DrawMouseSettingsMenu()
     ImGui::EndMenu();
 }
 
+/* Settings > Controls > Gyro.  The status lines are what make it checkable from
+ * here: whether the pad has a gyro at all, whether it is reporting, which way
+ * a turn reads, and whether the drift has been learned. */
+void DrawGyroSettingsMenu()
+{
+    if (!ImGui::BeginMenu("Gyro"))
+    {
+        return;
+    }
+
+    ReiPan_GyroSettings s;
+    ReiPan_GyroGetSettings(&s);
+    ReiPan_GyroStatus status;
+    ReiPan_GyroGetStatus(&status);
+    bool changed = false;
+
+    bool look = s.look != 0;
+    if (ImGui::MenuItem("Aim the Camera Obscura with the gyro", nullptr, &look))
+    {
+        s.look = look ? 1 : 0;
+        changed = true;
+    }
+    if (status.has_gamepad == 0)
+    {
+        ImGui::TextDisabled("   no gamepad connected");
+    }
+    else if (status.has_gyro == 0)
+    {
+        ImGui::TextDisabled("   this gamepad reports no gyro");
+    }
+    else if (status.active == 0)
+    {
+        ImGui::TextDisabled("   gyro off");
+    }
+    else if (status.rate_hz > 0.0f)
+    {
+        ImGui::TextDisabled("   gyro reporting at %.0f Hz", (double)status.rate_hz);
+    }
+    else
+    {
+        ImGui::TextDisabled("   gyro reporting");
+    }
+
+    ImGui::BeginDisabled(!look);
+    ImGui::PushItemWidth(200.0f);
+    changed |= ImGui::SliderFloat("Sensitivity", &s.sensitivity,
+                                  REIPAN_GYRO_SENSITIVITY_MIN,
+                                  REIPAN_GYRO_SENSITIVITY_MAX, "%.2fx",
+                                  ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("1.00x turns the view as far as the pad turns.");
+    }
+    ImGui::PopItemWidth();
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Turn with");
+    if (ImGui::MenuItem("   Yaw: point the pad left and right", nullptr,
+                        s.turn == REIPAN_GYRO_TURN_YAW))
+    {
+        s.turn = REIPAN_GYRO_TURN_YAW;
+        changed = true;
+    }
+    if (ImGui::MenuItem("   Roll: tip the pad sideways", nullptr,
+                        s.turn == REIPAN_GYRO_TURN_ROLL))
+    {
+        s.turn = REIPAN_GYRO_TURN_ROLL;
+        changed = true;
+    }
+    bool invert_x = s.invert_x != 0;
+    if (ImGui::MenuItem("Invert X", nullptr, &invert_x))
+    {
+        s.invert_x = invert_x ? 1 : 0;
+        changed = true;
+    }
+    bool invert_y = s.invert_y != 0;
+    if (ImGui::MenuItem("Invert Y", nullptr, &invert_y))
+    {
+        s.invert_y = invert_y ? 1 : 0;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::Separator();
+
+    /* Live, before sensitivity, so it reads the same whatever the slider says:
+     * turning the pad right should read positive yaw, lifting its far edge
+     * positive pitch. */
+    if (status.active != 0)
+    {
+        ImGui::Text("Now  yaw %+7.1f  pitch %+7.1f  deg/s%s",
+                    (double)status.rate_yaw_deg, (double)status.rate_pitch_deg,
+                    status.aiming != 0 ? "   aiming" : "");
+        if (status.calibration < 1.0f)
+        {
+            ImGui::TextColored(ImVec4(0.94f, 0.58f, 0.36f, 1.0f),
+                               "Learning drift: set the pad down and keep it "
+                               "still (%.0f%%)",
+                               (double)(status.calibration * 100.0f));
+        }
+        else
+        {
+            ImGui::TextDisabled("Drift learned: %+.2f / %+.2f / %+.2f deg/s "
+                                "(pitch / yaw / roll)",
+                                (double)status.bias_deg[0],
+                                (double)status.bias_deg[1],
+                                (double)status.bias_deg[2]);
+        }
+        if (ImGui::SmallButton("Recalibrate"))
+        {
+            ReiPan_GyroRecalibrate();
+        }
+        ImGui::Separator();
+    }
+
+    if (ImGui::MenuItem("Reset gyro", nullptr, false,
+                        ReiPan_GyroSettingsAreDefault() == 0))
+    {
+        ReiPan_GyroDefaults(&s);
+        changed = true;
+    }
+
+    if (changed)
+    {
+        ReiPan_GyroSetSettings(&s);
+    }
+    ImGui::EndMenu();
+}
+
+/* Settings > Controls > Rumble.  What the pad was last told and each cue by
+ * itself are what make it checkable from here, without a ghost to hand. */
+void DrawRumbleSettingsMenu()
+{
+    if (!ImGui::BeginMenu("Rumble"))
+    {
+        return;
+    }
+
+    ReiPan_HapticsSettings s;
+    ReiPan_HapticsGetSettings(&s);
+    ReiPan_HapticsStatus status;
+    ReiPan_HapticsGetStatus(&status);
+    bool changed = false;
+
+    if (status.has_gamepad == 0)
+    {
+        ImGui::TextDisabled("No gamepad connected");
+    }
+    else if (status.has_rumble == 0)
+    {
+        ImGui::TextDisabled("This gamepad reports no motors");
+    }
+    ImGui::PushItemWidth(200.0f);
+    float strength = s.strength * 100.0f;
+    if (ImGui::SliderFloat("Strength", &strength, 0.0f, 100.0f, "%.0f%%"))
+    {
+        s.strength = strength / 100.0f;
+        changed = true;
+    }
+    ImGui::Separator();
+
+    bool triggers = s.triggers != 0;
+    if (ImGui::MenuItem("Trigger rumble", nullptr, &triggers))
+    {
+        s.triggers = triggers ? 1 : 0;
+        changed = true;
+    }
+    switch (status.triggers)
+    {
+    case REIPAN_TRIGGERS_WINDOWS:
+        ImGui::TextDisabled("   on, all four motors through Windows");
+        break;
+    case REIPAN_TRIGGERS_SDL:
+        ImGui::TextDisabled("   on, through SDL");
+        break;
+    case REIPAN_TRIGGERS_SEARCHING:
+        ImGui::TextDisabled("   looking for the pad in Windows: press a button on it");
+        break;
+    default:
+        ImGui::TextDisabled("%s", triggers && status.has_gamepad != 0
+                                      ? "   this gamepad has no trigger motors"
+                                      : "   off");
+        break;
+    }
+    ImGui::BeginDisabled(!triggers);
+    float trigger_strength = s.trigger_strength * 100.0f;
+    if (ImGui::SliderFloat("Trigger strength", &trigger_strength, 0.0f, 100.0f,
+                           "%.0f%%"))
+    {
+        s.trigger_strength = trigger_strength / 100.0f;
+        changed = true;
+    }
+    bool camera = s.camera != 0;
+    if (ImGui::MenuItem("Camera Obscura (not in the original)", nullptr, &camera))
+    {
+        s.camera = camera ? 1 : 0;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("The shutter, the charge and a shutter chance.");
+    }
+    ImGui::EndDisabled();
+    ImGui::PopItemWidth();
+    ImGui::Separator();
+
+    /* As the pad was last told, so after the strengths. */
+    const struct
+    {
+        const char *label;
+        float       value;
+    } motors[] = {
+        {"left grip", status.low},
+        {"right grip", status.high},
+        {"left trigger", status.left_trigger},
+        {"right trigger", status.right_trigger},
+    };
+    for (const auto &motor : motors)
+    {
+        ImGui::ProgressBar(motor.value, ImVec2(120.0f, 0.0f), "");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", motor.label);
+    }
+    if (ImGui::SmallButton("Test each motor"))
+    {
+        ReiPan_HapticsTest();
+    }
+    const bool cues = status.triggers == REIPAN_TRIGGERS_SDL ||
+                      status.triggers == REIPAN_TRIGGERS_WINDOWS;
+    if (ImGui::BeginMenu("Play a cue", cues))
+    {
+        for (int cue = 0; cue < REIPAN_CUE_COUNT; cue++)
+        {
+            /* Selectable rather than MenuItem: the menu stays up to try the
+             * next one. */
+            if (ImGui::Selectable(ReiPan_HapticsCueName(cue), false,
+                                  ImGuiSelectableFlags_NoAutoClosePopups))
+            {
+                ReiPan_HapticsPreview(cue);
+            }
+        }
+        ImGui::EndMenu();
+    }
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Reset rumble", nullptr, false,
+                        ReiPan_HapticsSettingsAreDefault() == 0))
+    {
+        ReiPan_HapticsDefaults(&s);
+        changed = true;
+    }
+
+    if (changed)
+    {
+        ReiPan_HapticsSetSettings(&s);
+    }
+    ImGui::EndMenu();
+}
+
 /* Settings > Controls.  The rebinding itself is a window -- twenty rows of
  * cells to click do not fit in a menu -- so this is the way to it, plus the
  * reset worth having without opening it. */
@@ -2224,6 +2529,8 @@ void DrawControlsSettingsMenu()
     ImGui::MenuItem("Rebind keyboard and gamepad...", nullptr,
                     &g_show_controls);
     DrawMouseSettingsMenu();
+    DrawGyroSettingsMenu();
+    DrawRumbleSettingsMenu();
     ImGui::Separator();
     if (ImGui::MenuItem("Reset all bindings", nullptr, false,
                         ReiPan_InputBindingsAreDefault() == 0))

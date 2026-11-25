@@ -75,7 +75,7 @@
 #include "ingame/menu/anim_2d.h"
 #include "ingame/photo/finder_photo.h"                 // PhotoModeWrk*
 #include "ingame/menu/menu_file_list.h"         // MemoMenuReqInit
-#include "ingame/photo/photo_obj.h"              // PhotoObjMain
+#include "ingame/photo/photo_obj.h"              // PhotoObjMain, PhotoObjLoadRestore
 #include "ingame/movie_room_menu/prg/movie_projecter.h"
 #include "ingame/pause/prg/pause.h"                      // IsPauseEnable
 #include "ingame/event/prg/ev_command.h"     // GetFinderBankWrk
@@ -564,6 +564,7 @@ void IngameLoadRestore(void)
     CatCtrlLoadRestore();
     RadioLoadRestore();
     GetPhotoModeWrk()->LoadRestore();
+    PhotoObjLoadRestore();              // PC: block 30's effect pointers are the saving process's
     FadeInReq(0, 0, 0, 30);
 }
 

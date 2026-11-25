@@ -333,7 +333,7 @@ int scePadSetActDirect(int port, int slot, const unsigned char *data)
         return 0;
     }
 
-    // data[0] = large (on/off) motor, data[1] = small motor strength.
+    // data[0] = the small motor, on or off; data[1] = the big motor's power.
     return ReiPan_InputRumble(data[0], data[1]);
 }
 

@@ -7,6 +7,8 @@
 #include "../rendering/reipan_renderer.h"
 #include "../gameplay/reipan_over_shoulder.h"
 #include "../io/reipan_game_mouse.h"
+#include "../io/reipan_gyro.h"
+#include "../io/reipan_haptics.h"
 
 #include "outgame/option.h"             // GetOptionWrk, OptionInit, OptionApplySound
 
@@ -59,12 +61,13 @@ struct Row
     std::function<int()> get;
     std::function<void(int)> set;
 
-    /* Slider.  `step` is added. */
+    /* Slider.  `step` is added -- or, logarithmic, multiplied. */
     std::function<float()> get_value;
     std::function<void(float)> set_value;
     float min = 0.0f;
     float max = 1.0f;
     float step = 0.05f;
+    bool logarithmic = false;
     std::function<std::string(float)> format;
 
     /* Action. */
@@ -612,11 +615,74 @@ bool FinderOn()
     return enable != 0;
 }
 
+/* AUTO and the backends this platform has, in the order the row steps through
+ * them. */
+std::vector<int> Backends()
+{
+    std::vector<int> backends;
+    for (int i = 0; i < REIPAN_BACKEND_COUNT; i++)
+    {
+        if (ReiPan_RendererBackendIsAvailable(i) != 0)
+        {
+            backends.push_back(i);
+        }
+    }
+    return backends;
+}
+
+std::string BackendHelp()
+{
+    const std::string asked =
+        ReiPan_RendererGetBackendLabel(ReiPan_RendererGetBackend());
+    std::string text = "Which graphics API draws the game. Auto suits most "
+                       "systems. Drawing with ";
+    text += ReiPan_RendererGetBackendLabel(ReiPan_RendererGetBackendActive());
+    text += " now.";
+    switch (ReiPan_RendererGetBackendStatus())
+    {
+    case REIPAN_BACKEND_STATUS_RESTART:
+        text += " Restart ReiPan to switch to " + asked + ".";
+        break;
+    case REIPAN_BACKEND_STATUS_FALLBACK:
+        text += " " + asked + " could not be started.";
+        break;
+    case REIPAN_BACKEND_STATUS_OVERRIDDEN:
+        text += " SDL_GPU_DRIVER is set and overrides this setting.";
+        break;
+    default:
+        break;
+    }
+    return text;
+}
+
 Page GraphicsPage()
 {
     Page page{"graphics", "Graphics", {}};
     std::vector<Row> &rows = page.rows;
 
+    {
+        const std::vector<int> backends = Backends();
+        std::vector<std::string> names;
+        for (int backend : backends)
+        {
+            names.push_back(ReiPan_RendererGetBackendLabel(backend));
+        }
+        rows.push_back(Choice(
+            "Graphics API", BackendHelp, std::move(names),
+            [backends] {
+                /* Not in the list: a settings file from another system.  It
+                 * runs as Auto here, so that is what the row says. */
+                const auto at = std::find(backends.begin(), backends.end(),
+                                          ReiPan_RendererGetBackend());
+                return at != backends.end() ? (int)(at - backends.begin()) : 0;
+            },
+            [backends](int index) {
+                if (index >= 0 && index < (int)backends.size())
+                {
+                    ReiPan_RendererSetBackend(backends[index]);
+                }
+            }));
+    }
     rows.push_back(Choice(
         "Render resolution",
         Fixed("Match the window, the PS2's own 640x448 times a scale, or the "
@@ -811,6 +877,121 @@ void EditMouse(const std::function<void(ReiPan_GameMouseSettings &)> &edit)
     ReiPan_GameMouseSetSettings(&s);
 }
 
+/* A gamepad's gyro (io/reipan_gyro.h), saved the same way. */
+ReiPan_GyroSettings GyroSettings()
+{
+    ReiPan_GyroSettings s;
+    ReiPan_GyroGetSettings(&s);
+    return s;
+}
+
+void EditGyro(const std::function<void(ReiPan_GyroSettings &)> &edit)
+{
+    ReiPan_GyroSettings s = GyroSettings();
+    edit(s);
+    ReiPan_GyroSetSettings(&s);
+}
+
+bool GyroOn()
+{
+    return GyroSettings().look != 0;
+}
+
+std::string GyroHelp()
+{
+    ReiPan_GyroStatus status;
+    ReiPan_GyroGetStatus(&status);
+    std::string text = "Aim the raised Camera Obscura by moving the "
+                       "controller, alongside the stick. ";
+    if (status.has_gamepad == 0)
+    {
+        text += "No controller is connected.";
+    }
+    else if (status.has_gyro == 0)
+    {
+        text += "This controller has no gyro.";
+    }
+    else if (status.active != 0 && status.calibration < 1.0f)
+    {
+        text += "Learning its drift: set it down and keep it still.";
+    }
+    else
+    {
+        text += "Its drift is learned whenever it lies still.";
+    }
+    return text;
+}
+
+/* The controller's motors (io/reipan_haptics.h), saved the same way.  The
+ * game's Vibration, on the Game page, is the switch for all of them. */
+ReiPan_HapticsSettings RumbleSettings()
+{
+    ReiPan_HapticsSettings s;
+    ReiPan_HapticsGetSettings(&s);
+    return s;
+}
+
+void EditRumble(const std::function<void(ReiPan_HapticsSettings &)> &edit)
+{
+    ReiPan_HapticsSettings s = RumbleSettings();
+    edit(s);
+    ReiPan_HapticsSetSettings(&s);
+}
+
+bool RumbleOn()
+{
+    return GameOptions().vibration != 0;
+}
+
+bool TriggerRumbleOn()
+{
+    return RumbleOn() && RumbleSettings().triggers != 0;
+}
+
+std::string RumbleHelp()
+{
+    if (!RumbleOn())
+    {
+        return "Vibration is off on the Game page.";
+    }
+    return "How hard the controller shakes. 100% is as hard as the game asks.";
+}
+
+std::string TriggerRumbleHelp()
+{
+    ReiPan_HapticsStatus status;
+    ReiPan_HapticsGetStatus(&status);
+    std::string text = "Feel heartbeats, blows, a ghost's grip, thunder and the "
+                       "cutscenes in the triggers as well. ";
+    if (!RumbleOn())
+    {
+        text += "Vibration is off on the Game page.";
+    }
+    else if (status.has_gamepad == 0)
+    {
+        text += "No controller is connected.";
+    }
+    else if (status.triggers == REIPAN_TRIGGERS_SEARCHING)
+    {
+        text += "Looking for this controller's trigger motors: press a button "
+                "on it.";
+    }
+    else if (RumbleSettings().triggers == 0)
+    {
+        text += "For a controller with motors behind its triggers: Xbox One "
+                "and later.";
+    }
+    else if (status.triggers == REIPAN_TRIGGERS_NONE)
+    {
+        text += "This controller has no motors there.";
+    }
+    else
+    {
+        text += "On for this controller.";
+    }
+    return text;
+}
+
 /* The game's Game Play and Controller screens (phases 22 and 23), and the
  * port's bindings. */
 Page ControlsPage()
@@ -883,6 +1064,127 @@ Page ControlsPage()
         }));
 
 #endif
+
+    rows.push_back(Heading("Gyro"));
+    rows.push_back(Toggle(
+        "Gyro aiming", GyroHelp, GyroOn, [](bool on) {
+            EditGyro([on](ReiPan_GyroSettings &s) { s.look = on ? 1 : 0; });
+        }));
+    /* Sensitivities span two orders of magnitude, so each step multiplies. */
+    Row gyro_sensitivity = When(
+        Slider("Gyro sensitivity",
+               Fixed("1.00x turns the view as far as the controller turns."),
+               REIPAN_GYRO_SENSITIVITY_MIN, REIPAN_GYRO_SENSITIVITY_MAX, 1.1f,
+               [] { return GyroSettings().sensitivity; },
+               [](float value) {
+                   EditGyro([value](ReiPan_GyroSettings &s) {
+                       s.sensitivity = value;
+                   });
+               },
+               Format("%.2fx")),
+        GyroOn);
+    gyro_sensitivity.logarithmic = true;
+    rows.push_back(std::move(gyro_sensitivity));
+    rows.push_back(When(
+        Choice("Turn with",
+               Fixed("Yaw: point the controller left and right. Roll: tip it "
+                     "sideways like a wheel."),
+               {"Yaw", "Roll"}, [] { return GyroSettings().turn; },
+               [](int value) {
+                   EditGyro([value](ReiPan_GyroSettings &s) { s.turn = value; });
+               }),
+        GyroOn));
+    rows.push_back(When(
+        Toggle("Invert gyro X", Fixed("Swap left and right."),
+               [] { return GyroSettings().invert_x != 0; },
+               [](bool on) {
+                   EditGyro([on](ReiPan_GyroSettings &s) {
+                       s.invert_x = on ? 1 : 0;
+                   });
+               }),
+        GyroOn));
+    rows.push_back(When(
+        Toggle("Invert gyro Y", Fixed("Swap up and down."),
+               [] { return GyroSettings().invert_y != 0; },
+               [](bool on) {
+                   EditGyro([on](ReiPan_GyroSettings &s) {
+                       s.invert_y = on ? 1 : 0;
+                   });
+               }),
+        GyroOn));
+    rows.push_back(When(
+        Action("Recalibrate gyro",
+               Fixed("Forget the learned drift; set the controller down and "
+                     "keep it still to learn it again."),
+               "Recalibrate", [] { ReiPan_GyroRecalibrate(); }),
+        GyroOn));
+    rows.push_back(When(
+        Action("Reset gyro", Fixed("Gyro aiming back to its defaults."),
+               "Reset", [] {
+                   EditGyro([](ReiPan_GyroSettings &s) {
+                       ReiPan_GyroDefaults(&s);
+                   });
+               }),
+        [] { return ReiPan_GyroSettingsAreDefault() == 0; }));
+
+    rows.push_back(Heading("Rumble"));
+    rows.push_back(When(
+        Slider("Rumble strength", RumbleHelp, 0.0f, 1.0f, 0.05f,
+               [] { return RumbleSettings().strength; },
+               [](float value) {
+                   EditRumble([value](ReiPan_HapticsSettings &s) {
+                       s.strength = value;
+                   });
+               },
+               Percent(100.0f)),
+        RumbleOn));
+    rows.push_back(When(
+        Toggle("Trigger rumble", TriggerRumbleHelp,
+               [] { return RumbleSettings().triggers != 0; },
+               [](bool on) {
+                   EditRumble([on](ReiPan_HapticsSettings &s) {
+                       s.triggers = on ? 1 : 0;
+                   });
+               }),
+        RumbleOn));
+    rows.push_back(When(
+        Slider("Trigger strength",
+               Fixed("The triggers alone, on top of the rumble strength."), 0.0f,
+               1.0f, 0.05f, [] { return RumbleSettings().trigger_strength; },
+               [](float value) {
+                   EditRumble([value](ReiPan_HapticsSettings &s) {
+                       s.trigger_strength = value;
+                   });
+               },
+               Percent(100.0f)),
+        TriggerRumbleOn));
+    rows.push_back(When(
+        Toggle("Camera Obscura rumble",
+               Fixed("Feel the shutter, the charge and a shutter chance in the "
+                     "triggers. The original does not shake for these."),
+               [] { return RumbleSettings().camera != 0; },
+               [](bool on) {
+                   EditRumble([on](ReiPan_HapticsSettings &s) {
+                       s.camera = on ? 1 : 0;
+                   });
+               }),
+        TriggerRumbleOn));
+    rows.push_back(When(
+        Action("Test rumble",
+               Fixed("Each motor in turn: the left grip, the right grip, and "
+                     "with trigger rumble the left and right triggers."),
+               "Test", [] { ReiPan_HapticsTest(); }),
+        RumbleOn));
+    rows.push_back(When(
+        Action("Reset rumble", Fixed("The rumble settings above back to their "
+                                     "defaults."),
+               "Reset", [] {
+                   EditRumble([](ReiPan_HapticsSettings &s) {
+                       ReiPan_HapticsDefaults(&s);
+                   });
+               }),
+        [] { return ReiPan_HapticsSettingsAreDefault() == 0; }));
+
 #ifndef __PROSPERO__
     /* (bindings are rebound in the overlay, which needs a keyboard) */
     rows.push_back(Heading("Bindings"));
@@ -1152,12 +1454,22 @@ void BuildPages()
 
 float SliderFraction(const Row &row, float value)
 {
+    if (row.logarithmic)
+    {
+        return (std::log(value) - std::log(row.min)) /
+               (std::log(row.max) - std::log(row.min));
+    }
     return (value - row.min) / (row.max - row.min);
 }
 
 float SliderFromFraction(const Row &row, float fraction)
 {
     fraction = std::clamp(fraction, 0.0f, 1.0f);
+    if (row.logarithmic)
+    {
+        return std::exp(std::log(row.min) +
+                        fraction * (std::log(row.max) - std::log(row.min)));
+    }
     const float value = row.min + fraction * (row.max - row.min);
     return row.min + std::round((value - row.min) / row.step) * row.step;
 }
@@ -1203,9 +1515,18 @@ void Adjust(Row &row, int direction)
     else if (row.kind == RowKind::Slider)
     {
         const float before = row.get_value();
-        /* On the step grid, so repeated steps do not drift. */
-        const float steps = std::round((before - row.min) / row.step);
-        SetSlider(row, row.min + (steps + (float)direction) * row.step);
+        float value;
+        if (row.logarithmic)
+        {
+            value = before * std::pow(row.step, (float)direction);
+        }
+        else
+        {
+            /* On the step grid, so repeated steps do not drift. */
+            const float steps = std::round((before - row.min) / row.step);
+            value = row.min + (steps + (float)direction) * row.step;
+        }
+        SetSlider(row, value);
         if (row.get_value() != before)
         {
             ReiPanRmlCommon::PlayCursor();

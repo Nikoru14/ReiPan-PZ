@@ -139,6 +139,21 @@ int PhotoObjSlotSaveGet(void **addr)
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// PC: not in FF3. Block 30 carries each slot's effect pointer. On the EE the
+// effect banks never move, so a loaded pointer still names a record (a free
+// one: IngameInit's InitEffects ran before the load); on the host it belongs
+// to the process that saved. Drop it -- the object is kept, and the room
+// load's PhotoObjAreaOn starts the current area's glows again.
+
+void PhotoObjLoadRestore(void)
+{
+    int i;
+
+    for (i = 0; i < PHOTO_OBJ_SLOT_NUM; i++)
+        photo_obj_slot[i].eff = nullptr;
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // One parts deform at the slot's glow point for this frame (SetEffects 0x16
 // fl 1), its speed / wave values copied into the slot. FF3 writes this out
 // three times in PhotoObjSlotEffStep.

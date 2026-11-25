@@ -39,6 +39,7 @@
 
 #include "reipan/io/reipan_log.h"       // PC: ReiPan_LogInit
 #include "reipan/os/reipan_host.h"      // PC: ReiPan_HostMain
+#include "reipan/os/reipan_crash.h"     // PC: ReiPan_CrashInstall
 #include "reipan/os/reipan_pacing.h"    // PC: ReiPan_ResolveVBlankWait
 #include "reipan/reipan_profiler.h"     // PC: ReiPan_ProfilerRecordVblankPacing
 #include "reipan/reipan_ps5.h"         // PC: ReiPan_Ps5FrameTick
@@ -656,6 +657,7 @@ int main(void)
     SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
 #endif
     ReiPan_LogInit();
+    ReiPan_CrashInstall();      // PC: Windows crash.log / crash.dmp; a no-op elsewhere
 #ifdef __PROSPERO__
     ReiPan_Ps5Notify("%s starting. Log: %sreipan.log", REIPAN_PS5_BUILD_LABEL,
                      ReiPan_Ps5UserDir());

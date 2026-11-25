@@ -21,7 +21,8 @@
 #define PHOTO_OBJ_SLOT_NUM  4           // bss 0x3f66e0, 4 x 0x50
 
 // One glow slot (bss 0x3f66e0 + i * 0x50, save block 30: FF3 saves the
-// whole 0x140 bytes, the effect pointer included).
+// whole 0x140 bytes, the effect pointer included; PhotoObjLoadRestore drops
+// it after a load).
 // layout: host -- eff is a pointer (EE 4 bytes at +0x04); later fields
 // shift by 4 / 16 on the host. EE offsets in the comments.
 struct PHOTO_OBJ_SLOT                   /* 0x50 */
@@ -92,6 +93,7 @@ int    PhotoObjTargetIsOn(void);                    // FF3 0x00228a08: unreferen
 int    PhotoObjHintInView(float dmax, float deg);   // FF3 0x00228a58: unreferenced
 float *PhotoObjGetHintPos(void);                    // FF3 0x00228aa0: unreferenced
 int    PhotoObjSlotSaveGet(void **addr);            // FF3 0x00228ab8: save block 30 {0x3f66e0, 0x140}
+void   PhotoObjLoadRestore(void);                   // PC: IngameLoadRestore, the saved effect pointers dropped
 void   PhotoObjMain(void);                          // FF3 0x00228de8: IngameMain, every frame
 void   PhotoObjAreaOn(int area);                    // FF3 0x00229448: AREA_CHANGE, SET_PHOTOABLE_, doors, reload
 void   PhotoObjAreaOff(int area);                   // FF3 0x00229460: the room buffer being left

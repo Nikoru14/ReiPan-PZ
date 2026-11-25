@@ -141,6 +141,48 @@ int  ReiPan_RendererGetAnisotropy(void);
 int  ReiPan_RendererGetAnisotropyActive(void);
 int  ReiPan_RendererGetAnisotropyMax(void);
 
+/* The graphics API.
+ *
+ * Which SDL_GPU backend the device is created with.  Set only records the
+ * choice: the device, and everything built on it, is made once at startup, so
+ * a change takes effect the next time ReiPan starts.  AUTO leaves the choice to
+ * SDL, which takes the first backend that works on the system.
+ *
+ * A backend that is not there or cannot be started falls back to AUTO, and the
+ * choice is kept rather than rewritten -- a settings file moved between systems
+ * keeps what the player asked for.  SDL_GPU_DRIVER in the environment outranks
+ * the setting (SDL's own rule). */
+enum
+{
+    REIPAN_BACKEND_AUTO = 0,
+    REIPAN_BACKEND_D3D12 = 1,
+    REIPAN_BACKEND_VULKAN = 2,
+    REIPAN_BACKEND_METAL = 3,
+    REIPAN_BACKEND_COUNT
+};
+void ReiPan_RendererSetBackend(int backend);
+int  ReiPan_RendererGetBackend(void);
+
+/* The backend the device is running; AUTO before there is one. */
+int  ReiPan_RendererGetBackendActive(void);
+
+/* Whether this build has the backend at all (SDL's list for the platform), so a
+ * UI offers only what could work.  AUTO always is. */
+int  ReiPan_RendererBackendIsAvailable(int backend);
+
+/* "Auto", "Direct3D 12", ... for a UI. */
+const char *ReiPan_RendererGetBackendLabel(int backend);
+
+/* How the setting stands against the running device. */
+enum
+{
+    REIPAN_BACKEND_STATUS_ACTIVE = 0,   /* running as asked                    */
+    REIPAN_BACKEND_STATUS_RESTART,      /* changed; takes a restart            */
+    REIPAN_BACKEND_STATUS_FALLBACK,     /* could not be started; AUTO was used */
+    REIPAN_BACKEND_STATUS_OVERRIDDEN    /* SDL_GPU_DRIVER chose instead        */
+};
+int  ReiPan_RendererGetBackendStatus(void);
+
 /* Window mode.
  *
  * BORDERLESS is desktop fullscreen: the window is given no display mode of its

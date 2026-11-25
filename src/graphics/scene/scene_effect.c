@@ -49,6 +49,7 @@
 #include "system/os/sys_heap.h"         // GetSystemHeapWrkP
 #include "system/os/system.h"           // GetPALMode
 #include "system/pad/pad.h"             // pad_wrk
+#include "reipan/gameplay/reipan_haptic_cues.h"     // PC: what the rumble is for
 
 // ──────────────────────────────────────────────────────────────────────
 // The records (FF2's types; FF3's changes noted). Each opens with its
@@ -2173,6 +2174,8 @@ static void SceneEffectVibrate(const SCENE_VIBRATION_DATA *pData)
             pad_wrk[0].vib_big_pow = pData->Power;
         }
     }
+    ReiPan_HapticCue(REIPAN_CUE_SCENE,          // PC: the small motor has no power
+                     pData->ActuaterNo == 0 ? 0.6f : (float)pData->Power / 255.0f);
 }
 
 // Rumble while VibrateCount runs, rest while BlankCount runs, reload both

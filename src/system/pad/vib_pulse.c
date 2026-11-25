@@ -9,6 +9,7 @@
 
 #include "ingame/sound/snd_ctrl.h"      // SndSePlay
 #include "outgame/option.h"             // GetOptionWrk
+#include "reipan/gameplay/reipan_haptic_cues.h"     // PC: what the rumble is for
 #include "system/pad/pad.h"             // pad_wrk
 
 struct VIB_PULSE;
@@ -93,7 +94,10 @@ void VibPulseMain(void)
     }
 
     if (vp->on_cnt-- == vp->on_time)
+    {
         SndSePlay(VIB_PULSE_SE, 100, 0x1000, 0, nullptr, 0);
+        ReiPan_HapticCue(REIPAN_CUE_HEARTBEAT, (float)vp->power / 255.0f);  // PC
+    }
 
     if (GetOptionWrk()->now.vibration != 0)
     {

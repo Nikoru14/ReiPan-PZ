@@ -47,6 +47,7 @@
 #include "ingame/ingame_effect.h"      // IgEffectSubFunc*Req, IgEffectZeroCamFreqReq
 #include "outgame/option.h"             // GetOptionWrk
 #include "system/pad/pad.h"             // pad_wrk (the rumble)
+#include "reipan/gameplay/reipan_haptic_cues.h"     // PC: what the rumble is for
 #include "reipan/os/reipan_rand.h"      // ReiPan_Rand, REIPAN_RAND_MAXF
 #include "reipan/reipan_memory.h"       // PC: ReiPan_GetHostPointer
 #include "reipan/rendering/reipan_graph3d.h" // PC: ReiPan_Graph3dDrawEffectQuad / DrawGouraudTriangles
@@ -1003,6 +1004,7 @@ static void EffEneHitVibrate(void)
         pad_wrk[0].vib_big_pow = 0xff;
         pad_wrk[0].vib_big_time = 40;
     }
+    ReiPan_HapticCue(REIPAN_CUE_SHOT, 1.0f);    // PC
 }
 
 // The screen half per frame. Flow 1 waits SEC0 frames and raises the

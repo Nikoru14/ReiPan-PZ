@@ -793,6 +793,19 @@ Add an entry whenever something burns time and could again. Keep each one: sympt
   size the frame's other slots were given (g_capture_alloc_w / _h). If a one-shot capture still shows
   black, check that the source draws ran before the capture point (IngameDrawSub before the step).
 
+### The swapchain image is not a frame you can read (Linux crash at the title, 2026-11-24)
+- Symptom: SIGSEGV on Linux at the title's first room frame; the log ends at `Loading shader
+  room_glow_blur.frag`, after `ReiPan gpu: render WxH -> swapchain WxH (direct)`. Windows was fine.
+- Cause: with no present pass (SDR, identity grade) and the render size equal to the window's, the frame was
+  drawn straight into the swapchain, and RecordRoomGlow then sampled it. SDL_GPU's swapchain texture is
+  write-only: the D3D12 backend happens to create an SRV for it, the Vulkan one mallocs the texture and never
+  sets `fullView`, so the driver got a garbage VkImageView. Blits survive (vkCmdBlitImage takes no view), which
+  is why the screen mirror never crashed. HDR and a moved grade slider draw into the output target and hid it.
+- Fix: RecordFramePasses never picks the swapchain as the scene target; its read-backs take `scene_source`,
+  null in the fallback where they cannot be read.
+- Test Vulkan on Windows: `SDL_GPU_DRIVER=vulkan`, HDR off, windowed (a scratch `REIPAN_USER_DIR` has both).
+  The pre-fix build crashed there in nvoglv64.dll too, so no Linux machine is needed for this class of bug.
+
 ## Build
 
 - **`build.py --run N` alone runs without the scripted pad** and sits in the language select, so a trace in title code prints nothing and looks like dead code (cost a few runs, 2026-10-14). Use `tus.py check <TU> --run 45` (it passes `settings.smoke_pad`), or `build.py --run 45 --pad "<the smoke_pad string>"`. Temporary printf traces: prefix them and grep the run log; remove them before finish.
@@ -1020,6 +1033,18 @@ Add an entry whenever something burns time and could again. Keep each one: sympt
   check the real size: here the route table had 25 entries, not the 16 declared. To find such a crash:
   `python gdbrun.py` (play with host input), then `gdbrun.py --cmd "frame N" "p *ene->cmn"` on the held
   game; grep lib/unassigned_stubs.c for zero tables the faulting code reads.
+
+### A saved host pointer works until the next build or reboot (2026-11-24)
+- Symptom: loading a card save crashes in `EffectRelease <- EffKind1ECut <- PhotoObjSlotCut <-
+  PhotoObjAreaOn <- MapLoadSetNowRoom`, on a pointer outside the module. The same save loads fine in the
+  build that wrote it.
+- Cause: save blocks are raw host memory. Block 30 (PHOTO_OBJ_SLOT) holds a pointer into the effect
+  banks; a rebuild or Windows' per-boot ASLR base moves them. The EE's banks never move.
+- Fix: a block with a pointer needs it dropped or rebuilt after the load, before its first reader
+  (PhotoObjLoadRestore in IngameLoadRestore). The blocks with host pointers are the ones
+  reipan_save_codec.cpp's Size() lists: 7 / 8 (offsets, EventAfterLoad), 27 / 28 (PlyrLoadRestore), 30,
+  51 (MapPlayStartReset's MapDoorVecInit), 54, 55 (their LoadRestore). To check a save file: search it
+  for 8-byte values 0x7ff6........ .
 
 ### A caller's buffer sized from what it copies, not what the callee writes (2026-10-20)
 - Symptom: none while the callee is a stub; host stack corruption once it is written.

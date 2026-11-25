@@ -6,6 +6,8 @@
 #include "rendering/reipan_renderer.h"
 #include "gameplay/reipan_over_shoulder.h"
 #include "io/reipan_game_mouse.h"
+#include "io/reipan_gyro.h"
+#include "io/reipan_haptics.h"
 
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_stdinc.h>
@@ -24,6 +26,7 @@ ReiPan_Config reipan_config = {
         /* .window_mode       = */ REIPAN_WINDOW_MODE_WINDOWED,
         /* .window_width      = */ 1280,
         /* .window_height     = */ 896,
+        /* .backend           = */ REIPAN_BACKEND_AUTO,
         /* .render_mode       = */ REIPAN_RENDER_RES_MATCH_WINDOW,
         /* .render_scale      = */ 1.0f,
         /* .upscale_filter    = */ REIPAN_RENDER_FILTER_LINEAR,
@@ -165,6 +168,22 @@ ReiPan_Config reipan_config = {
                                      REIPAN_MOUSE_SRC_MIDDLE, REIPAN_MOUSE_SRC_WHEEL_UP,
                                      REIPAN_MOUSE_SRC_WHEEL_DOWN },
     },
+    /* .gyro = */ {
+        /* MioPan's: on, for a pad that has one. */
+        /* .look              = */ 1,
+        /* .sensitivity       = */ REIPAN_GYRO_SENSITIVITY_DEFAULT,
+        /* .turn              = */ REIPAN_GYRO_TURN_YAW,
+        /* .invert_x          = */ 0,
+        /* .invert_y          = */ 0,
+    },
+    /* .rumble = */ {
+        /* As hard as the game asks, with the triggers of a pad that has motors
+         * there; the Camera Obscura's are not the original's. */
+        /* .strength          = */ 1.0f,
+        /* .triggers          = */ 1,
+        /* .trigger_strength  = */ 1.0f,
+        /* .camera            = */ 0,
+    },
     /* Up on a first run, so the settings are there to be found. */
     /* .overlay_menu_bar = */ 1,
 };
@@ -190,6 +209,17 @@ const EnumName kWindowModes[] = {
     {"borderless", REIPAN_WINDOW_MODE_BORDERLESS},
     /* Accepted on read, never written: what someone would type by hand. */
     {"fullscreen", REIPAN_WINDOW_MODE_BORDERLESS},
+    {nullptr, 0},
+};
+
+const EnumName kBackends[] = {
+    {"auto", REIPAN_BACKEND_AUTO},
+    {"direct3d12", REIPAN_BACKEND_D3D12},
+    {"vulkan", REIPAN_BACKEND_VULKAN},
+    {"metal", REIPAN_BACKEND_METAL},
+    /* Accepted on read, never written: what someone would type by hand. */
+    {"d3d12", REIPAN_BACKEND_D3D12},
+    {"dx12", REIPAN_BACKEND_D3D12},
     {nullptr, 0},
 };
 
@@ -269,6 +299,12 @@ const EnumName kTitleMotions[] = {
 const EnumName kTitleEasings[] = {
     {"smooth", REIPAN_TITLE_EASING_SMOOTH},
     {"linear", REIPAN_TITLE_EASING_LINEAR},
+    {nullptr, 0},
+};
+
+const EnumName kGyroTurns[] = {
+    {"yaw", REIPAN_GYRO_TURN_YAW},
+    {"roll", REIPAN_GYRO_TURN_ROLL},
     {nullptr, 0},
 };
 
@@ -1313,6 +1349,7 @@ static void ConfigLoadOnce(void)
     ReadEnum("window", "mode", kWindowModes, &r->window_mode);
     ReadInt("window", "width", &r->window_width);
     ReadInt("window", "height", &r->window_height);
+    ReadEnum("render", "backend", kBackends, &r->backend);
     ReadEnum("render", "mode", kRenderModes, &r->render_mode);
     ReadFloat("render", "scale", &r->render_scale);
     ReadEnum("render", "upscale_filter", kFilters, &r->upscale_filter);
@@ -1418,6 +1455,19 @@ static void ConfigLoadOnce(void)
             }
         }
     }
+
+    ReiPan_ConfigGyro *gyro = &reipan_config.gyro;
+    ReadInt("gyro", "look", &gyro->look);
+    ReadFloat("gyro", "sensitivity", &gyro->sensitivity);
+    ReadEnum("gyro", "turn", kGyroTurns, &gyro->turn);
+    ReadInt("gyro", "invert_x", &gyro->invert_x);
+    ReadInt("gyro", "invert_y", &gyro->invert_y);
+
+    ReiPan_ConfigRumble *rumble = &reipan_config.rumble;
+    ReadFloat("rumble", "strength", &rumble->strength);
+    ReadInt("rumble", "triggers", &rumble->triggers);
+    ReadFloat("rumble", "trigger_strength", &rumble->trigger_strength);
+    ReadInt("rumble", "camera", &rumble->camera);
 
     LoadInputBindings();
     ReadTitle(&reipan_config.title, true);
@@ -1533,6 +1583,58 @@ std::string BuildMouseSection()
     return text;
 }
 
+/* [gyro]. */
+std::string BuildGyroSection()
+{
+    const ReiPan_ConfigGyro *g = &reipan_config.gyro;
+    char text[2048];
+    std::snprintf(
+        text, sizeof(text),
+        "\n[gyro]\n"
+        "; While the Camera Obscura is raised, a gamepad with a gyroscope aims\n"
+        ";   it by being turned; the stick still works alongside it. The\n"
+        ";   gyro's drift is learned whenever the pad lies still with the\n"
+        ";   Camera Obscura down. 0 off, 1 on.\n"
+        "look = %d\n"
+        "; Multiplies the pad's own rotation: 1.0 turns the view as far as the\n"
+        ";   pad turned. 0.1..8.\n"
+        "sensitivity = %.3f\n"
+        "; What turns it left and right: yaw (point the pad left and right) or\n"
+        ";   roll (tip it sideways, like a wheel).\n"
+        "turn = %s\n"
+        "; 1 swaps left and right, or up and down.\n"
+        "invert_x = %d\n"
+        "invert_y = %d\n",
+        g->look, (double)g->sensitivity, EnumToName(kGyroTurns, g->turn),
+        g->invert_x, g->invert_y);
+    return text;
+}
+
+/* [rumble]. */
+std::string BuildRumbleSection()
+{
+    const ReiPan_ConfigRumble *r = &reipan_config.rumble;
+    char text[2048];
+    std::snprintf(
+        text, sizeof(text),
+        "\n[rumble]\n"
+        "; How hard the controller shakes, 0..1: 1 is as hard as the game asks.\n"
+        ";   The game's own Vibration option turns it off altogether.\n"
+        "strength = %.3f\n"
+        "; 1 also plays what the shaking is for -- heartbeats, blows, a ghost's\n"
+        ";   grip, thunder, the cutscenes -- on the motors behind the triggers of\n"
+        ";   a controller that has them (Xbox One and later). 0 leaves every\n"
+        ";   controller to the game's two motors.\n"
+        "triggers = %d\n"
+        "; The trigger motors alone, 0..1, on top of strength.\n"
+        "trigger_strength = %.3f\n"
+        "; 1 also plays the Camera Obscura there: the shutter, the charge and a\n"
+        ";   shutter chance. The original does not shake for these.\n"
+        "camera = %d\n",
+        (double)r->strength, r->triggers, (double)r->trigger_strength, r->camera);
+    return text;
+}
+
 } // namespace
 
 int ReiPan_ConfigSave(void)
@@ -1580,6 +1682,7 @@ int ReiPan_ConfigSave(void)
      * regenerating it on the resize pass would be pure waste. */
     const std::string input_section = BuildInputSection();
     const std::string camera_section = BuildCameraSection() + BuildMouseSection() +
+        BuildGyroSection() + BuildRumbleSection() +
         "\n[overlay]\n"
         "; The menu bar F1 shows and hides, as it was left.\n"
         "menu_bar = " + std::to_string(reipan_config.overlay_menu_bar != 0 ? 1 : 0) +
@@ -1611,6 +1714,12 @@ int ReiPan_ConfigSave(void)
         "height = %d\n"
         "\n"
         "[render]\n"
+        "; Graphics API: auto | direct3d12 | vulkan | metal. Read at startup.\n"
+        ";   auto takes the first one that works here. One that cannot be\n"
+        ";   started falls back to it; one that starts and then misbehaves\n"
+        ";   is undone by writing auto.\n"
+        ";   SDL_GPU_DRIVER overrides it for one run.\n"
+        "backend = %s\n"
         "; match_window | native | window_scale\n"
         ";   native rasterises at 640x448 x scale, i.e. PS2 pixel density\n"
         "mode = %s\n"
@@ -1772,6 +1881,7 @@ int ReiPan_ConfigSave(void)
         EnumToName(kWindowModes, r->window_mode),
         r->window_width,
         r->window_height,
+        EnumToName(kBackends, r->backend),
         EnumToName(kRenderModes, r->render_mode),
         (double)r->render_scale,
         EnumToName(kFilters, r->upscale_filter),
@@ -1930,6 +2040,7 @@ void ReiPan_ConfigApply(void)
     /* Through the setters, so their clamps are the only place a range is
      * enforced and a hand-edited file cannot put the renderer in a state the
      * UI could not. */
+    ReiPan_RendererSetBackend(r->backend);
     ReiPan_RendererSetAspectMode(r->aspect_mode, r->aspect_ratio);
     ReiPan_RendererSetRenderResolution(r->render_mode, r->render_scale);
     ReiPan_RendererSetUpscaleFilter(r->upscale_filter);
@@ -1987,12 +2098,32 @@ void ReiPan_ConfigApply(void)
         gm.bind[i] = m->bind[i];
     }
     ReiPan_GameMouseSetSettings(&gm);
+
+    const ReiPan_ConfigGyro *g = &reipan_config.gyro;
+    ReiPan_GyroSettings      gs;
+    gs.look = g->look;
+    gs.sensitivity = g->sensitivity;
+    gs.turn = g->turn;
+    gs.invert_x = g->invert_x;
+    gs.invert_y = g->invert_y;
+    ReiPan_GyroSetSettings(&gs);
+
+    const ReiPan_ConfigRumble *rumble = &reipan_config.rumble;
+    ReiPan_HapticsSettings     hs;
+    hs.strength = rumble->strength;
+    hs.triggers = rumble->triggers;
+    hs.trigger_strength = rumble->trigger_strength;
+    hs.camera = rumble->camera;
+    ReiPan_HapticsSetSettings(&hs);
 }
 
 void ReiPan_ConfigCapture(void)
 {
     ReiPan_ConfigRenderer *r = &reipan_config.renderer;
 
+    /* The requested backend, not the one the device runs, for the reason the
+     * sample count below is the requested one. */
+    r->backend = ReiPan_RendererGetBackend();
     ReiPan_RendererGetAspectMode(&r->aspect_mode, &r->aspect_ratio);
     ReiPan_RendererGetRenderResolution(&r->render_mode, &r->render_scale);
     r->upscale_filter = ReiPan_RendererGetUpscaleFilter();
@@ -2048,6 +2179,23 @@ void ReiPan_ConfigCapture(void)
     {
         m->bind[i] = gm.bind[i];
     }
+
+    ReiPan_GyroSettings gs;
+    ReiPan_GyroGetSettings(&gs);
+    ReiPan_ConfigGyro *g = &reipan_config.gyro;
+    g->look = gs.look;
+    g->sensitivity = gs.sensitivity;
+    g->turn = gs.turn;
+    g->invert_x = gs.invert_x;
+    g->invert_y = gs.invert_y;
+
+    ReiPan_HapticsSettings hs;
+    ReiPan_HapticsGetSettings(&hs);
+    ReiPan_ConfigRumble *rumble = &reipan_config.rumble;
+    rumble->strength = hs.strength;
+    rumble->triggers = hs.triggers;
+    rumble->trigger_strength = hs.trigger_strength;
+    rumble->camera = hs.camera;
 
     /* The windowed size, which the renderer latches while the window is not
      * fullscreen.  Reading the live window instead would store the desktop

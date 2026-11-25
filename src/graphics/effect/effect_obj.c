@@ -74,6 +74,7 @@
 #include "ingame/movie_room_menu/prg/movie_projecter.h"  // IsMoviePhase
 #include "ingame/story_door.h"          // MapAreaSideGet, MapAreaNoGet
 #include "system/eeiop/file_cache.h"    // file_cache
+#include "reipan/gameplay/reipan_haptic_cues.h"     // PC: what the rumble is for
 #include <math.h>                       // fabsf
 #include <libgraph.h>                   // SCE_GS_* register numbers
 
@@ -1859,6 +1860,7 @@ void EffectThunderLightExec(void)
     {
         tl->ThunderTime--;
         VibrateRequest1(0, 1);
+        ReiPan_HapticCue(REIPAN_CUE_THUNDER, 1.0f);     // PC: the crack
         if (tl->ThunderTime == 0)
         {
             tl->ThunderTime = 2;
@@ -1879,6 +1881,7 @@ void EffectThunderLightExec(void)
     {
         tl->ThunderTime--;
         VibrateRequest1(0, 1);
+        ReiPan_HapticCue(REIPAN_CUE_THUNDER, 0.3f + 0.7f * (float)tl->ThunderTime / 45.0f);    // PC: rolling away
         if (tl->ThunderTime == 0)
             tl->ThunderStatus = 0;
     }

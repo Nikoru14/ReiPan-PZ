@@ -71,6 +71,7 @@
 #include "ingame/item/prg/item.h"       // ItemGetCnt, ItemLost
 #include "ingame/cat/cat_ctrl.h"        // CatViewCtrl, CatPlyrHitCheck
 #include "graphics/effect/effect_sub.h" // Get2PDist3D, WorldToScreenPos
+#include "reipan/gameplay/reipan_haptic_cues.h"     // PC: what the rumble is for
 #include "reipan/gameplay/reipan_over_shoulder.h"   // PC: the over-the-shoulder camera
 
 // ──────────────────────────────────────────────────────────────────────
@@ -347,6 +348,7 @@ void PlyrStatusCtrl(void)
     {
     case 1:                             // shaking off: full rumble, mashing shortens it
         VibrateRequest2(0, 0xff);
+        ReiPan_HapticCue(REIPAN_CUE_STRICKEN, 1.0f);    // PC
         if (plyr->status_time > 0.0f && PlyrMashStep())
         {
             t = plyr->status_time - 1.0f;
@@ -588,6 +590,7 @@ void PlyrDamageCtrl(void)
                     if (mash != 0 && (int)ene->hold_pow > 22)
                         ene->hold_pow -= PlyrGaugeDmgRate(disp) * 3.0f;
                     VibrateRequest1(0, 1);
+                    ReiPan_HapticCue(REIPAN_CUE_HELD, 1.0f);    // PC
                 }
                 if ((int)ene->hold_pow > 20)
                     CallDeform2(0, 0, (int)ene->hold_pow, 7, 0xd);
@@ -615,6 +618,7 @@ void PlyrDamageCtrl(void)
                 {
                     ene->hold_pow = ingame_wrk.plyr_wrk->status_time;
                     VibrateRequest1(0, 1);
+                    ReiPan_HapticCue(REIPAN_CUE_HELD, 1.0f);    // PC
                 }
                 if ((int)ene->hold_pow > 20)
                     CallDeform2(0, 0, (int)ene->hold_pow, 7, 0xd);
@@ -700,7 +704,10 @@ void PlyrDamageCtrl(void)
                     ene->hold_pow = 0.0f;
                 }
                 else
+                {
                     VibrateRequest1(0, 1);
+                    ReiPan_HapticCue(REIPAN_CUE_HELD, 1.0f);    // PC
+                }
             }
             break;
 
@@ -1219,6 +1226,8 @@ void PlyrVibCheck(void)
         }
         else if ((ewp->flags2 & 0x2000) == 0)
         {
+            if (mvib_time1 == 0x12)     // PC: the beat's first frame
+                ReiPan_HapticCue(REIPAN_CUE_HEARTBEAT, (float)mvib_degree / 255.0f);
             mvib_time1--;
             VibrateRequest2(0, mvib_degree);
         }
@@ -1235,6 +1244,9 @@ void PlyrVibCheck(void)
 void PlyrVibCtrl(u_char time)
 {
     PLYR_WRK *plyr = ingame_wrk.plyr_wrk;
+
+    if (time != 0)                      // PC: every request is a ghost's blow
+        ReiPan_HapticCue(REIPAN_CUE_HIT, 1.0f);
 
     if (time != 0 && plyr->vib_time_sm < time)
         plyr->vib_time_sm = time;

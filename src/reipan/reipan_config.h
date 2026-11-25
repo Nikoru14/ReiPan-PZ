@@ -29,6 +29,7 @@ typedef struct ReiPan_ConfigRenderer
     int   window_mode;       /* REIPAN_WINDOW_MODE_*   */
     int   window_width;      /* windowed size only; fullscreen is never stored */
     int   window_height;
+    int   backend;           /* REIPAN_BACKEND_*; read once, at startup */
     int   render_mode;       /* REIPAN_RENDER_RES_*    */
     float render_scale;
     int   upscale_filter;    /* REIPAN_RENDER_FILTER_* */
@@ -220,6 +221,31 @@ typedef struct ReiPan_ConfigMouse
     int   bind[5];           /* REIPAN_MOUSE_ACT_* order                    */
 } ReiPan_ConfigMouse;
 
+/*
+ * Gyro aiming (io/reipan_gyro.h), section [gyro].  Every field is 4 bytes.
+ */
+typedef struct ReiPan_ConfigGyro
+{
+    int   look;
+    float sensitivity;
+    int   turn;              /* REIPAN_GYRO_TURN_*, written by name         */
+    int   invert_x;
+    int   invert_y;
+} ReiPan_ConfigGyro;
+
+/*
+ * The controller's motors (io/reipan_haptics.h), section [rumble].  The game's
+ * own Vibration option is not here: it lives in the save.  Every field is 4
+ * bytes.
+ */
+typedef struct ReiPan_ConfigRumble
+{
+    float strength;          /* 0..1                                        */
+    int   triggers;
+    float trigger_strength;  /* 0..1                                        */
+    int   camera;            /* the Camera Obscura's cues too               */
+} ReiPan_ConfigRumble;
+
 typedef struct ReiPan_Config
 {
     /* Order matters: reipan_config.cpp's defaults are a positional
@@ -231,6 +257,8 @@ typedef struct ReiPan_Config
     int profiler_fps_only;
     ReiPan_ConfigCamera   camera;
     ReiPan_ConfigMouse    mouse;
+    ReiPan_ConfigGyro     gyro;
+    ReiPan_ConfigRumble   rumble;
     int overlay_menu_bar;    /* the overlay's bar is up (F1), [overlay]     */
 } ReiPan_Config;
 

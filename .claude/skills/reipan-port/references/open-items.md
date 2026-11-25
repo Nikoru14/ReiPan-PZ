@@ -1280,7 +1280,9 @@ Not seen: the cancel path's restore (option_cancel), the Mono choice, BG music v
 - **PC guards:** PhotoObjSlotSet returns when no slot is free (FF3 writes through null: a fifth active object in one
   area); PhotoObjMain zeroes the near position FF3 leaves unset when only a target exists.
 - **Save blocks 29 / 30**: block 30 holds the slots with their effect pointer (FF3 saves the raw 0x140 bytes; the host
-  saves its larger table). What restores the slots after a load is unknown (probably the room reload's PhotoObjAreaOn).
+  saves its larger table). The room load's PhotoObjAreaOn restores the slots after a load: it cuts each object of the
+  area (PhotoObjSlotCut releases the saved effect) and takes a slot again. The saved pointer is stale on the host
+  (crash in EffectRelease, 2026-11-24), so IngameLoadRestore calls the PC-only PhotoObjLoadRestore, which drops it.
 - Unknown record fields +0x24..+0x3c (ids 0x6d3.. / 0x947.., indices 0..0x20 of the 33 type-3 objects, score 1000 / 2000
   in the low half of +0x1c): read by photo_dat.c / the album code, not here.
 

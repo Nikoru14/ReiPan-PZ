@@ -89,9 +89,10 @@ int ReiPan_InputButtonHeld(int index);
 unsigned char ReiPan_InputStickValue(int index);
 unsigned char ReiPan_InputButtonPressure(int index);
 
-// Rumble the active gamepad; `low`/`high` are the two PS2 actuator bytes
-// (data[1] small motor, data[0] large motor).  Returns non-zero on success.
-int ReiPan_InputRumble(unsigned char large_on, unsigned char small_strength);
+// Rumble the active gamepad, through io/reipan_haptics.h: the two PS2 actuator
+// bytes, data[0] the small motor (on or off) and data[1] the big one's power.
+// Returns non-zero with a gamepad to rumble.
+int ReiPan_InputRumble(unsigned char small_on, unsigned char big_power);
 
 // ---------------------------------------------------------------------------
 //  Gamepad selection.

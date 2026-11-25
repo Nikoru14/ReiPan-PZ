@@ -70,6 +70,14 @@ set_source_files_properties(${REIPAN_TRANSLATION_UNITS} PROPERTIES LANGUAGE CXX)
 add_executable(ReiPan ${REIPAN_SOURCES} ${APP_ICON_RESOURCE_WINDOWS})
 add_dependencies(ReiPan compile_shaders)
 target_include_directories(ReiPan PRIVATE ${REIPAN_INCLUDE_DIRS})
+# MSVC: a .pdb for every configuration, Release included, so a crash's stack
+# (src/reipan/os/reipan_crash.cpp) names its functions and lines.  /OPT:REF
+# and /OPT:ICF keep the optimised linker's choices that /DEBUG would turn off.
+if(MSVC)
+    target_compile_options(ReiPan PRIVATE /Zi)
+    target_link_options(ReiPan PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+endif()
+
 target_link_libraries(ReiPan PRIVATE
     ZLIB::ZLIBSTATIC
     SDL3::SDL3

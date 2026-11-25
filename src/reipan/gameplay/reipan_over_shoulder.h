@@ -106,10 +106,14 @@ int ReiPan_OverShoulderOwnsMovement(void);
 
 /* PlyrMoveDirCtrl(): the heading the left stick is relative to.  `stock_yaw`
  * is the game's own (camera towards the player), `stick_held` whether the
- * stick is pushed.  Returns non-zero and sets *yaw when this camera decides
- * it; across a cut to or from another camera the old heading holds until
- * the stick is let go, so a cut never turns the player round. */
-int ReiPan_OverShoulderMoveYaw(float stock_yaw, int stick_held, float *yaw);
+ * stick is pushed and `stick_angle` its direction (PlyrGetStickAngle()).
+ * Returns non-zero and sets *yaw when this camera decides it.  Across a cut
+ * to or from another camera the old heading holds while the stick is held
+ * the same way, so a cut never turns the player round; it lets go when the
+ * stick is released or steered well away, and coming back to this camera it
+ * eases onto this camera's heading. */
+int ReiPan_OverShoulderMoveYaw(float stock_yaw, int stick_held, float stick_angle,
+                               float *yaw);
 
 /* PlyrFinderModeStart(): the viewfinder opens where this camera looked. */
 void ReiPan_OverShoulderFinderStart(float *facing, float *pitch);

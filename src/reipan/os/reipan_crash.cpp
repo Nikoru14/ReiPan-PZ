@@ -11,6 +11,16 @@
 #include <cstring>
 #include <string>
 
+/* The EE kernel shim, force-included into every file, renames these to its
+ * ReiPan_* versions (eekernel.h); <windows.h> declares the Win32 functions of
+ * the same names, which the renames would turn into clashing redeclarations
+ * of the shim's.  Nothing below calls the shim's, so the renames go. */
+#undef CreateThread
+#undef TerminateThread
+#undef SuspendThread
+#undef ResumeThread
+#undef GetThreadId
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dbghelp.h>

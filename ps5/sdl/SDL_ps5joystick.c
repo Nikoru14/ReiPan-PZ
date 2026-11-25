@@ -24,6 +24,9 @@ static const uint32_t ps5_buttons[] = {
     PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT,
 };
 #define PS5_BUTTONS ((int)SDL_arraysize(ps5_buttons))
+/* ReiPan: one more, the touch pad clicked on its right half -- SDL's
+ * "touchpad" button -- beside "back", which any click of it still is. */
+#define PS5_BUTTON_TOUCHPAD_RIGHT PS5_BUTTONS
 #define PS5_AXES    6 // left x, left y, right x, right y, L2, R2
 
 static bool ps5_pad_opened;
@@ -126,9 +129,13 @@ static SDL_JoystickID PS5_JoystickGetDeviceInstanceID(int device_index)
 
 static bool PS5_JoystickOpen(SDL_Joystick *joystick, int device_index)
 {
-    joystick->nbuttons = PS5_BUTTONS;
+    joystick->nbuttons = PS5_BUTTONS + 1;
     joystick->naxes = PS5_AXES;
     joystick->nhats = 0;
+    /* ReiPan: the touch pad's two fingers, and the gyro (off until asked for;
+     * the pad samples it at 250 Hz). */
+    SDL_PrivateJoystickAddTouchpad(joystick, 2);
+    SDL_PrivateJoystickAddSensor(joystick, SDL_SENSOR_GYRO, 250.0f);
     SDL_SetBooleanProperty(SDL_GetJoystickProperties(joystick), SDL_PROP_JOYSTICK_CAP_RUMBLE_BOOLEAN, true);
     SDL_SetBooleanProperty(SDL_GetJoystickProperties(joystick), SDL_PROP_JOYSTICK_CAP_RGB_LED_BOOLEAN, true);
     return true;
@@ -158,7 +165,11 @@ static bool PS5_JoystickSendEffect(SDL_Joystick *joystick, const void *data, int
 
 static bool PS5_JoystickSetSensorsEnabled(SDL_Joystick *joystick, bool enabled)
 {
-    return SDL_Unsupported();
+    if (!pad_player_set_motion((int)joystick->instance_id - 1, enabled)) {
+        return SDL_SetError("the controller's motion sensors would not switch %s",
+                            enabled ? "on" : "off");
+    }
+    return true;
 }
 
 static Sint16 PS5_Stick(float value)
@@ -184,6 +195,29 @@ static void PS5_JoystickUpdate(SDL_Joystick *joystick)
     }
     for (int i = 0; i < PS5_BUTTONS; i++) {
         SDL_SendJoystickButton(timestamp, joystick, (Uint8)i, (pad.held & ps5_buttons[i]) != 0);
+    }
+    /* ReiPan: a click on the touch pad's right half (where the first finger
+     * is), and the fingers themselves. */
+    SDL_SendJoystickButton(timestamp, joystick, PS5_BUTTON_TOUCHPAD_RIGHT,
+                           (pad.held & PAD_TOUCH_PAD) != 0 && pad.touch_count > 0 &&
+                               pad.touch_x[0] >= 0.5f);
+    for (int i = 0; i < 2; i++) {
+        const bool down = i < pad.touch_count;
+        SDL_SendJoystickTouchpad(timestamp, joystick, 0, i, down, pad.touch_x[i],
+                                 pad.touch_y[i], down ? 1.0f : 0.0f);
+    }
+    /* ReiPan: every gyro sample since the last update, each with the pad's own
+     * time stamp, while the sensor is on. */
+    if (joystick->nsensors_enabled > 0) {
+        const struct pad_reading *readings;
+        const int n = pad_player_readings((int)joystick->instance_id - 1, &readings);
+        for (int i = 0; i < n; i++) {
+            if (!readings[i].connected || (readings[i].buttons & PAD_INTERCEPTED)) {
+                continue;
+            }
+            SDL_SendJoystickSensor(timestamp, joystick, SDL_SENSOR_GYRO,
+                                   readings[i].timestamp_us * 1000u, readings[i].gyro, 3);
+        }
     }
     SDL_SendJoystickAxis(timestamp, joystick, 0, PS5_Stick(pad.left_x));
     SDL_SendJoystickAxis(timestamp, joystick, 1, PS5_Stick(pad.left_y));
@@ -220,6 +254,8 @@ static bool PS5_JoystickGetGamepadMapping(int device_index, SDL_GamepadMapping *
         .dpdown = { EMappingKind_Button, 11 },
         .dpleft = { EMappingKind_Button, 12 },
         .dpright = { EMappingKind_Button, 13 },
+        /* ReiPan: the touch pad's right half (PS5_BUTTON_TOUCHPAD_RIGHT) */
+        .touchpad = { EMappingKind_Button, 14 },
         .leftx = { EMappingKind_Axis, 0 },
         .lefty = { EMappingKind_Axis, 1 },
         .rightx = { EMappingKind_Axis, 2 },

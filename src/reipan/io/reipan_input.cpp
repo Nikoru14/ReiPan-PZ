@@ -152,6 +152,12 @@ static int SourceMagnitude(const ReiPan_InputSource *src, const bool *keys)
         {
             return 0;
         }
+        /* Fork: on the PS5 a touch pad click is Select ("back") too; while its
+         * right half re-grips the gyro in the Camera Obscura it is not. */
+        if (src->code == SDL_GAMEPAD_BUTTON_BACK && ReiPan_GyroRegripHeld())
+        {
+            return 0;
+        }
         return SDL_GetGamepadButton(s_gamepad, (SDL_GamepadButton)src->code)
                    ? REIPAN_SRC_FULL
                    : 0;

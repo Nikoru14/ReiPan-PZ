@@ -51,6 +51,10 @@ struct pad {
    uint32_t pressed; /* buttons that went down since the last poll */
    float left_x, left_y, right_x, right_y; /* -1..1, a dead zone removed; y is down-positive */
    float l2, r2;                           /* 0..1 */
+   /* ReiPan: the touch pad's fingers, 0..1 across and down (touch_count of
+    * them, at most two). */
+   int touch_count;
+   float touch_x[2], touch_y[2];
 };
 
 /* Up to four players, one per signed-in user: the console pairs each controller
@@ -84,6 +88,9 @@ struct pad_reading {
    uint8_t l2, r2;                           /* 0..255 */
    bool connected;
    uint64_t timestamp_us;
+   /* ReiPan: the gyro, radians a second about the pad's x, y and z (pitch,
+    * yaw, roll as SDL has them), while pad_player_set_motion has it on. */
+   float gyro[3];
 };
 
 /* Every reading the last pad_poll took, oldest first (the console keeps up to
@@ -98,6 +105,9 @@ void pad_player_vibrate(int player, float large, float small);
 /* The light bar's colour. */
 void pad_light_bar(uint8_t r, uint8_t g, uint8_t b);
 void pad_player_light_bar(int player, uint8_t r, uint8_t g, uint8_t b);
+/* ReiPan: switch a player's motion sensors on or off (they are off until asked
+ * for); true when the console took it. */
+bool pad_player_set_motion(int player, bool on);
 
 /* Sound: one 48 kHz output of interleaved stereo 16-bit samples. A thread of
  * its own calls fill for 256 frames at a time and blocks while the console

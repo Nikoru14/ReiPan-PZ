@@ -62,6 +62,14 @@ void ReiPan_GyroRecalibrate(void);
  * does; aiming lapses one pad read after the requests stop. */
 void ReiPan_GyroRequestAim(void);
 
+/* Fork: the right half of the touch pad, held while the Camera Obscura is up,
+ * re-grips the controller: the gyro's motion is let go while it is held, so
+ * the pad can be brought back to a comfortable angle, and whatever way it
+ * points when let go is where the view carries on from.  On the PS5 a click
+ * on the touch pad is also Select (its left half stays Select while aiming);
+ * the input layer leaves Select out while this is held.  1 while held. */
+int ReiPan_GyroRegripHeld(void);
+
 /* This frame's turn, in radians with the sensitivity and the inversions
  * already applied: positive yaw turns right, positive pitch looks up.  Writes
  * 0 and returns 0 when there is none. */

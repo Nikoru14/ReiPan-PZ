@@ -174,6 +174,10 @@ DualSense, Switch Pro, Steam Controller, ...) aims it by being turned, alongside
 the stick and the mouse. It is on by default; **Options → Controls → Gyro** sets
 the sensitivity, yaw or roll to turn, and the inversions. The gyro's drift is
 learned whenever the controller lies still with the Camera Obscura down.
+Hold the right half of the touch pad to re-grip: the view stays put while the
+controller is brought back to a comfortable angle, and carries on from there
+when it is let go. On the PS5, where a touch pad click is Select, its left half
+stays Select while aiming. The PS5 build reads the DualSense's gyro too.
 
 ## Trigger rumble
 

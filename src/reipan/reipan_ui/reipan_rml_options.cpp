@@ -902,7 +902,9 @@ std::string GyroHelp()
     ReiPan_GyroStatus status;
     ReiPan_GyroGetStatus(&status);
     std::string text = "Aim the raised Camera Obscura by moving the "
-                       "controller, alongside the stick. ";
+                       "controller, alongside the stick. Hold the right half of "
+                       "the touch pad to re-grip: the view stays put while you "
+                       "bring the controller back to a comfortable angle. ";
     if (status.has_gamepad == 0)
     {
         text += "No controller is connected.";

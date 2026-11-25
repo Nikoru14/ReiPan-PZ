@@ -93,6 +93,32 @@ int Aiming()
     return g_request != 0 || g_request_prev != 0;
 }
 
+/* Fork: the touch pad clicked on its right half -- SDL's touchpad button,
+ * taken as the right half when the first finger is there or the pad says
+ * nothing of its fingers. */
+bool TouchpadRightHeld()
+{
+    if (g_gamepad == nullptr ||
+        !SDL_GetGamepadButton(g_gamepad, SDL_GAMEPAD_BUTTON_TOUCHPAD))
+    {
+        return false;
+    }
+    if (SDL_GetNumGamepadTouchpads(g_gamepad) > 0 &&
+        SDL_GetNumGamepadTouchpadFingers(g_gamepad, 0) > 0)
+    {
+        bool down = false;
+        float x = 0.0f;
+        float y = 0.0f;
+        float pressure = 0.0f;
+        if (SDL_GetGamepadTouchpadFinger(g_gamepad, 0, 0, &down, &x, &y, &pressure) &&
+            down)
+        {
+            return x >= 0.5f;
+        }
+    }
+    return true;
+}
+
 /* Drop motion in flight and the sample clock, keeping the calibration.  For
  * anything that breaks the run of samples: focus lost, the gyro switched. */
 void ClearMotion()
@@ -311,6 +337,11 @@ void ReiPan_GyroRecalibrate(void)
     SDL_Log("ReiPan: gyro calibration restarted");
 }
 
+int ReiPan_GyroRegripHeld(void)
+{
+    return g_active && Aiming() && TouchpadRightHeld() ? 1 : 0;
+}
+
 void ReiPan_GyroRequestAim(void)
 {
     g_request = 1;
@@ -364,8 +395,10 @@ void ReiPan_GyroPoll(void)
     g_request_prev = g_request;
     g_request = 0;
 
-    g_look_yaw = g_request_prev ? g_motion_yaw : 0.0f;
-    g_look_pitch = g_request_prev ? g_motion_pitch : 0.0f;
+    /* Fork: a re-grip lets this frame's motion go. */
+    const bool regrip = g_request_prev && TouchpadRightHeld();
+    g_look_yaw = g_request_prev && !regrip ? g_motion_yaw : 0.0f;
+    g_look_pitch = g_request_prev && !regrip ? g_motion_pitch : 0.0f;
     g_motion_yaw = 0.0f;
     g_motion_pitch = 0.0f;
 }

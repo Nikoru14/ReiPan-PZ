@@ -1237,9 +1237,12 @@ void HudStoneSocketsDraw(float x, float y, float a, int stone_max)
 
 // ──────────────────────────────────────────────────────────────────────
 // Spirit stone i, 20 px apart: states 2 and 3 show the turning stone 0xd5
-// (state 4 fading it in by t, else 0xd6 while filled), shifted 10 px; then
-// the socket light 0xd7 and, blinking in (state 1) or out (state 2) by t,
-// 0xd8 additive.
+// (state 4 fading it in by t, else 0xd6 while filled); then the socket light
+// 0xd7 and, blinking in (state 1) or out (state 2) by t, 0xd8 additive.
+// The turning stone's table position (132, 384) is the socket's centre, and
+// HudSprtSet pivots the rotation there; the sprite (18x18) is then moved back
+// 10 px so it turns in place.  Moved forward, it swung round the socket in a
+// 27 px circle as the charge built.
 // FF3 0x001bdf60.
 
 void HudStoneDraw(float x, float y, float a, float fill, float t, float rot, int i, int state)
@@ -1255,8 +1258,8 @@ void HudStoneDraw(float x, float y, float a, float fill, float t, float rot, int
     if ((u_int)(state - 2) < 2)
     {
         HudSprtSetOfs(x, y, a, 1.0f, 1.0f, rot, &ds, 0xd5);
-        ds.x += 10.0f;
-        ds.y += 10.0f;
+        ds.x -= 10.0f;
+        ds.y -= 10.0f;
         DispSprD(&ds);
     }
     else
@@ -1268,8 +1271,8 @@ void HudStoneDraw(float x, float y, float a, float fill, float t, float rot, int
         if (state == 4)
         {
             HudSprtSetOfs(x, y, a * t, 1.0f, 1.0f, rot, &ds, 0xd5);
-            ds.x += 10.0f;
-            ds.y += 10.0f;
+            ds.x -= 10.0f;
+            ds.y -= 10.0f;
             DispSprD(&ds);
         }
     }

@@ -40,6 +40,17 @@ enum
     REIPAN_GYRO_TURN_ROLL           /* tip it sideways, like a steering wheel */
 };
 
+/* Fork: what the touch pad's right half does with the Camera Obscura up.
+ * Each holds the gyro still while it is pressed, so the controller can be
+ * brought back to a comfortable angle; the last two also move the view. */
+enum
+{
+    REIPAN_GYRO_RECENTER_ZERO = 0,  /* the view stays put: re-grip only */
+    REIPAN_GYRO_RECENTER_LEVEL,     /* the view tips back to level */
+    REIPAN_GYRO_RECENTER_START      /* level, and turned back to where she faced
+                                     * when the Camera Obscura went up */
+};
+
 typedef struct ReiPan_GyroSettings
 {
     int   look;                     /* aim the Camera Obscura with it */
@@ -47,6 +58,7 @@ typedef struct ReiPan_GyroSettings
     int   turn;                     /* REIPAN_GYRO_TURN_* */
     int   invert_x;
     int   invert_y;
+    int   recenter;                 /* fork: REIPAN_GYRO_RECENTER_* */
 } ReiPan_GyroSettings;
 
 void ReiPan_GyroDefaults(ReiPan_GyroSettings *out);
@@ -69,6 +81,12 @@ void ReiPan_GyroRequestAim(void);
  * on the touch pad is also Select (its left half stays Select while aiming);
  * the input layer leaves Select out while this is held.  1 while held. */
 int ReiPan_GyroRegripHeld(void);
+
+/* Fork: the frame the touch pad's right half went down with the Camera
+ * Obscura up and the gyro on, whichever REIPAN_GYRO_RECENTER_* is chosen
+ * (the finder levels or turns the view back for the last two); -1 on every
+ * other frame.  Read once a frame, by the finder. */
+int ReiPan_GyroRecenterPressed(void);
 
 /* This frame's turn, in radians with the sensitivity and the inversions
  * already applied: positive yaw turns right, positive pitch looks up.  Writes

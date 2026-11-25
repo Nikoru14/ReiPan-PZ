@@ -49,7 +49,11 @@ constexpr float kFallbackHz = 250.0f;
 
 constexpr ReiPan_GyroSettings kDefaults = {
     1, REIPAN_GYRO_SENSITIVITY_DEFAULT, REIPAN_GYRO_TURN_YAW, 0, 0,
+    REIPAN_GYRO_RECENTER_ZERO,
 };
+
+/* Fork: the touch pad's right half as last read, for its press edge. */
+bool g_recenter_was_held;
 
 ReiPan_GyroSettings g_set = kDefaults;
 
@@ -304,6 +308,10 @@ void ReiPan_GyroSetSettings(const ReiPan_GyroSettings *in)
     s.invert_y = s.invert_y ? 1 : 0;
     s.turn = s.turn == REIPAN_GYRO_TURN_ROLL ? REIPAN_GYRO_TURN_ROLL
                                              : REIPAN_GYRO_TURN_YAW;
+    if (s.recenter < REIPAN_GYRO_RECENTER_ZERO || s.recenter > REIPAN_GYRO_RECENTER_START)
+    {
+        s.recenter = REIPAN_GYRO_RECENTER_ZERO;
+    }
     /* Written so a NaN from a hand-edited file lands on the floor too. */
     if (!(s.sensitivity >= REIPAN_GYRO_SENSITIVITY_MIN))
     {
@@ -328,13 +336,22 @@ int ReiPan_GyroSettingsAreDefault(void)
            g_set.sensitivity == kDefaults.sensitivity &&
            g_set.turn == kDefaults.turn &&
            g_set.invert_x == kDefaults.invert_x &&
-           g_set.invert_y == kDefaults.invert_y;
+           g_set.invert_y == kDefaults.invert_y &&
+           g_set.recenter == kDefaults.recenter;
 }
 
 void ReiPan_GyroRecalibrate(void)
 {
     ResetCalibration();
     SDL_Log("ReiPan: gyro calibration restarted");
+}
+
+int ReiPan_GyroRecenterPressed(void)
+{
+    const bool held = g_active && Aiming() && TouchpadRightHeld();
+    const bool pressed = held && !g_recenter_was_held;
+    g_recenter_was_held = held;
+    return pressed ? g_set.recenter : -1;
 }
 
 int ReiPan_GyroRegripHeld(void)

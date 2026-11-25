@@ -176,10 +176,20 @@ float g_blend_p[3];
 float g_blend_i[3];
 
 /* The heading the left stick is relative to; held across a cut until the
- * stick is let go. */
+ * stick is let go, steered a new way, or eased onto this camera. */
 float g_move_ref = 0.0f;
 int   g_move_latched = 0;
 int   g_move_src_prev = -1;
+float g_move_latch_stick = 0.0f;   // the stick's angle when the hold began
+
+/* A held heading lets go when the stick is steered this far from where it
+ * was when the cut came: the player chose a new way, so the camera on screen
+ * decides it.  Coming back to this camera with the stick still held, the
+ * heading eases onto this camera's by this much a tick (about half a second
+ * for a half turn), so the walk lines up with the view without a jerk and
+ * without the stick having to be let go. */
+constexpr float kMoveLatchSteerDeg = 50.0f;
+constexpr float kMoveLatchEaseDeg = 12.0f;
 
 /* Where the player was when this camera last had the screen. */
 int   g_resume_valid = 0;
@@ -752,18 +762,42 @@ void ApplyBlend(float p[3], float t_i[3])
     g_blend--;
 }
 
-void UpdateMoveReference(float stock_yaw, int stick_held)
+void UpdateMoveReference(float stock_yaw, int stick_held, float stick_angle)
 {
     const int   source = g_active ? 0 : 1;
     const float reference = g_active ? g_yaw : stock_yaw;
 
-    if (g_move_src_prev >= 0 && source != g_move_src_prev && stick_held)
+    if (g_move_src_prev >= 0 && source != g_move_src_prev && stick_held &&
+        !g_move_latched)
     {
         g_move_latched = 1;
+        g_move_latch_stick = stick_angle;
     }
     if (!stick_held)
     {
         g_move_latched = 0;
+    }
+    else if (g_move_latched &&
+             fabsf(Wrap(stick_angle - g_move_latch_stick)) > Deg(kMoveLatchSteerDeg))
+    {
+        /* Steered a new way: the camera on screen decides it now. */
+        g_move_latched = 0;
+    }
+    else if (g_move_latched && g_active)
+    {
+        /* Back on this camera with the stick still held (through a door, out
+         * of an event or a search): ease onto this camera's heading rather
+         * than keep the old one until the stick is let go. */
+        const float gap = Wrap(reference - g_move_ref);
+        const float step = Deg(kMoveLatchEaseDeg);
+        if (fabsf(gap) <= step)
+        {
+            g_move_latched = 0;
+        }
+        else
+        {
+            g_move_ref = Wrap(g_move_ref + (gap > 0.0f ? step : -step));
+        }
     }
     if (!g_move_latched)
     {
@@ -1022,7 +1056,8 @@ int ReiPan_OverShoulderOwnsMovement(void)
     return g_set.enabled && g_active && PlayerInOrdinaryControl(Player());
 }
 
-int ReiPan_OverShoulderMoveYaw(float stock_yaw, int stick_held, float *yaw)
+int ReiPan_OverShoulderMoveYaw(float stock_yaw, int stick_held, float stick_angle,
+                               float *yaw)
 {
     EnsureSettings();
     if (!g_set.enabled)
@@ -1031,7 +1066,7 @@ int ReiPan_OverShoulderMoveYaw(float stock_yaw, int stick_held, float *yaw)
         g_move_src_prev = -1;
         return 0;
     }
-    UpdateMoveReference(stock_yaw, stick_held);
+    UpdateMoveReference(stock_yaw, stick_held, stick_angle);
     if (!g_active && !g_move_latched)
     {
         return 0;

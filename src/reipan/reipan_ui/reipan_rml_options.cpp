@@ -902,9 +902,8 @@ std::string GyroHelp()
     ReiPan_GyroStatus status;
     ReiPan_GyroGetStatus(&status);
     std::string text = "Aim the raised Camera Obscura by moving the "
-                       "controller, alongside the stick. Hold the right half of "
-                       "the touch pad to re-grip: the view stays put while you "
-                       "bring the controller back to a comfortable angle. ";
+                       "controller, alongside the stick. The touch pad's right "
+                       "half recenters it (Gyro recenter behaviour below). ";
     if (status.has_gamepad == 0)
     {
         text += "No controller is connected.";
@@ -1112,6 +1111,20 @@ Page ControlsPage()
                    EditGyro([on](ReiPan_GyroSettings &s) {
                        s.invert_y = on ? 1 : 0;
                    });
+               }),
+        GyroOn));
+    rows.push_back(When(
+        Choice("Gyro recenter behaviour",
+               Fixed("The touch pad's right half with the Camera Obscura up. "
+                     "It always holds the gyro still while pressed, so the "
+                     "controller can be re-gripped. Zero: the view stays where "
+                     "it is. Level: the view tips back to level. Level and "
+                     "back to start: and turns back to where Rei faced when "
+                     "she raised it."),
+               {"Zero", "Level", "Level and back to start"},
+               [] { return GyroSettings().recenter; },
+               [](int value) {
+                   EditGyro([value](ReiPan_GyroSettings &s) { s.recenter = value; });
                }),
         GyroOn));
     rows.push_back(When(

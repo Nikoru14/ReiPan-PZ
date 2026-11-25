@@ -1553,12 +1553,12 @@ void PlyrMoveDirCtrl(void)
     // shoulder offset skews), and it never cuts, so no cut hold applies.
     ots = 0;
     if (ang == 10.0f)
-        (void)ReiPan_OverShoulderMoveYaw(0.0f, 0, &ots_yaw);
+        (void)ReiPan_OverShoulderMoveYaw(0.0f, 0, 0.0f, &ots_yaw);
 
     if (ang != 10.0f)
     {
         GetTrgtRot(gra3dGetCamera()->matCoord[3], ingame_wrk.plyr_wrk->pos, cam_rot, 2);
-        if (ReiPan_OverShoulderMoveYaw(cam_rot[1], 1, &ots_yaw))
+        if (ReiPan_OverShoulderMoveYaw(cam_rot[1], 1, ang, &ots_yaw))
         {
             cam_rot[1] = ots_yaw;
             ots = 1;
@@ -1766,6 +1766,16 @@ void PlyrFinderMoveCtrl(void)
         mouse_pitch = -mouse_pitch;     // "Point of view: Reverse"
     PlyrFinderGyroTurn(&gyro_yaw, &gyro_pitch);
     turn += mouse_yaw + gyro_yaw;
+    // PC (fork): the touch pad's right half recenters as the Gyro recenter
+    // behaviour says: back to where she faced when the camera went up
+    // (hold_yaw, PlyrFinderModeStart's), and level, below.
+    const int recenter = ReiPan_GyroRecenterPressed();
+    if (recenter == REIPAN_GYRO_RECENTER_START)
+    {
+        d = ingame_wrk.plyr_wrk->hold_yaw - (ingame_wrk.plyr_wrk->rot[1] + turn);
+        RotLimitChk(&d);
+        turn += d;
+    }
     if (ingame_wrk.plyr_wrk->status == 4)
     {
         d = (ingame_wrk.plyr_wrk->rot[1] + turn) - ingame_wrk.plyr_wrk->hold_yaw;
@@ -1796,6 +1806,8 @@ void PlyrFinderMoveCtrl(void)
         pitch *= 0.600000024f;
     pitch *= GetFrameTimeScale();
     pitch += mouse_pitch + gyro_pitch;  // PC
+    if (recenter == REIPAN_GYRO_RECENTER_LEVEL || recenter == REIPAN_GYRO_RECENTER_START)
+        pitch = -ingame_wrk.plyr_wrk->finder_pitch;     // PC (fork): level
 
     limit = 1;
     up    = 0.0f;

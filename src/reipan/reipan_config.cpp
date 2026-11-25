@@ -175,6 +175,7 @@ ReiPan_Config reipan_config = {
         /* .turn              = */ REIPAN_GYRO_TURN_YAW,
         /* .invert_x          = */ 0,
         /* .invert_y          = */ 0,
+        /* .recenter          = */ REIPAN_GYRO_RECENTER_ZERO,
     },
     /* .rumble = */ {
         /* As hard as the game asks, with the triggers of a pad that has motors
@@ -305,6 +306,13 @@ const EnumName kTitleEasings[] = {
 const EnumName kGyroTurns[] = {
     {"yaw", REIPAN_GYRO_TURN_YAW},
     {"roll", REIPAN_GYRO_TURN_ROLL},
+    {nullptr, 0},
+};
+
+const EnumName kGyroRecenters[] = {
+    {"zero", REIPAN_GYRO_RECENTER_ZERO},
+    {"level", REIPAN_GYRO_RECENTER_LEVEL},
+    {"start", REIPAN_GYRO_RECENTER_START},
     {nullptr, 0},
 };
 
@@ -1462,6 +1470,7 @@ static void ConfigLoadOnce(void)
     ReadEnum("gyro", "turn", kGyroTurns, &gyro->turn);
     ReadInt("gyro", "invert_x", &gyro->invert_x);
     ReadInt("gyro", "invert_y", &gyro->invert_y);
+    ReadEnum("gyro", "recenter", kGyroRecenters, &gyro->recenter);
 
     ReiPan_ConfigRumble *rumble = &reipan_config.rumble;
     ReadFloat("rumble", "strength", &rumble->strength);
@@ -1604,9 +1613,14 @@ std::string BuildGyroSection()
         "turn = %s\n"
         "; 1 swaps left and right, or up and down.\n"
         "invert_x = %d\n"
-        "invert_y = %d\n",
+        "invert_y = %d\n"
+        "; The touch pad's right half with the Camera Obscura up holds the gyro\n"
+        ";   still while pressed (re-grip), and: zero (nothing more), level\n"
+        ";   (the view tips back to level) or start (level, and turned back to\n"
+        ";   where she faced when it went up).\n"
+        "recenter = %s\n",
         g->look, (double)g->sensitivity, EnumToName(kGyroTurns, g->turn),
-        g->invert_x, g->invert_y);
+        g->invert_x, g->invert_y, EnumToName(kGyroRecenters, g->recenter));
     return text;
 }
 
@@ -2106,6 +2120,7 @@ void ReiPan_ConfigApply(void)
     gs.turn = g->turn;
     gs.invert_x = g->invert_x;
     gs.invert_y = g->invert_y;
+    gs.recenter = g->recenter;
     ReiPan_GyroSetSettings(&gs);
 
     const ReiPan_ConfigRumble *rumble = &reipan_config.rumble;
@@ -2188,6 +2203,7 @@ void ReiPan_ConfigCapture(void)
     g->turn = gs.turn;
     g->invert_x = gs.invert_x;
     g->invert_y = gs.invert_y;
+    g->recenter = gs.recenter;
 
     ReiPan_HapticsSettings hs;
     ReiPan_HapticsGetSettings(&hs);

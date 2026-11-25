@@ -231,6 +231,7 @@ typedef struct ReiPan_ConfigGyro
     int   turn;              /* REIPAN_GYRO_TURN_*, written by name         */
     int   invert_x;
     int   invert_y;
+    int   recenter;          /* fork: REIPAN_GYRO_RECENTER_*, written by name */
 } ReiPan_ConfigGyro;
 
 /*

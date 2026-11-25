@@ -1156,7 +1156,7 @@ void PersistSettingsIfChanged()
                   "ReiPan_ConfigCamera gained padding; compare by field");
     static_assert(sizeof(ReiPan_ConfigMouse) == 8 * sizeof(int),
                   "ReiPan_ConfigMouse gained padding; compare by field");
-    static_assert(sizeof(ReiPan_ConfigGyro) == 5 * sizeof(int),
+    static_assert(sizeof(ReiPan_ConfigGyro) == 6 * sizeof(int),
                   "ReiPan_ConfigGyro gained padding; compare by field");
     static_assert(sizeof(ReiPan_ConfigRumble) == 4 * sizeof(int),
                   "ReiPan_ConfigRumble gained padding; compare by field");
@@ -2338,6 +2338,21 @@ void DrawGyroSettingsMenu()
     {
         s.invert_y = invert_y ? 1 : 0;
         changed = true;
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Gyro recenter (touch pad, right half)");
+    static const char *const kRecenters[] = {
+        "   Zero: hold to re-grip, the view stays",
+        "   Level: the view tips back to level",
+        "   Level and back to start: and turns back to where she faced",
+    };
+    for (int i = 0; i < 3; i++)
+    {
+        if (ImGui::MenuItem(kRecenters[i], nullptr, s.recenter == i))
+        {
+            s.recenter = i;
+            changed = true;
+        }
     }
     ImGui::EndDisabled();
     ImGui::Separator();

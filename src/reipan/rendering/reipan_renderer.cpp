@@ -451,7 +451,9 @@ struct DrawCommand
     float mvp[16];
     float model[16];
     /* GS alpha test, as the shader wants it: x = enable, y = reference in the
-     * shader's 0..1 alpha space, z = ATST comparison, w unused. */
+     * shader's 0..1 alpha space, z = ATST comparison, w = 1 when the texture
+     * carries the GS's raw texel alpha (GetTextureRawAlpha), which the sprite
+     * shader then tests unclamped. */
     float alpha_test[4];
     /* The rest of the GS draw environment, snapshotted when the draw was
      * queued.  Blend and depth-write are baked into the pipeline, so they pick
@@ -1526,6 +1528,9 @@ float g_gs_alpha_test[4];
  * (ReiPan_RendererSet2dAlphaTest); see ReiPan_RendererSetGsTestRegister(). */
 float g_gs_alpha_test_raw[4];
 int g_2d_alpha_test_scope;
+/* Set by DrawTexturedQuadImpl() for the one quad it is queuing when that quad
+ * samples a raw-alpha texture; ApplyGsDrawEnv() marks it in alpha_test[3]. */
+bool g_quad_raw_alpha;
 /* TEST's DATE bit, last value wins like the rest. */
 bool g_gs_dest_alpha_test;
 
@@ -10747,6 +10752,60 @@ TextureEntry *GetTexture(const sceGsTex0 *tex0)
 }
 
 /*
+ * GetTexture() with the GS's own texel alpha: 0x80 opaque, the top half kept
+ * rather than saturated.  For 2D draws inside ReiPan_RendererSet2dAlphaTest(),
+ * whose alpha test is the effect: the darkroom develop dissolve sweeps AREF
+ * from 0xff down to 0 through a picture whose alpha uses the whole byte, and
+ * against GetTexture()'s saturated copy everything above 0x80 would appear at
+ * once.  Kept apart in the content cache under a salted key; no tex0 cache,
+ * since these pictures are re-sent before every draw anyway.
+ */
+TextureEntry *GetTextureRawAlpha(const sceGsTex0 *tex0)
+{
+    constexpr uint64_t kRawAlphaSalt = 0x7261772d616c7068ull;   /* "raw-alph" */
+
+    if (tex0 == nullptr || !EnsureRenderer() || IsVideoTex0(tex0))
+    {
+        return nullptr;
+    }
+
+    ConsumeTextureInvalidations();
+
+    uint64_t hash = ReiPan_GetTextureHash((sceGsTex0 *)tex0);
+    if (hash == 0)
+    {
+        return nullptr;
+    }
+    hash ^= kRawAlphaSalt;
+    if (hash == 0)
+    {
+        hash = kRawAlphaSalt;
+    }
+
+    auto cached = g_texture_cache.find(hash);
+    if (cached != g_texture_cache.end())
+    {
+        g_texture_l2_hits++;
+        return &cached->second;
+    }
+
+    if (ReiPan_GsDownloadTextureRawAlpha((sceGsTex0 *)tex0) == nullptr)
+    {
+        return nullptr;
+    }
+    g_texture_downloads++;
+
+    std::vector<unsigned char> rgba = ReiPan::GS::TakeDownloadedTexture();
+    TextureEntry *entry = CreatePendingTexture(
+        hash, 1 << tex0->TW, 1 << tex0->TH, std::move(rgba));
+    if (entry != nullptr)
+    {
+        g_texture_creates++;
+    }
+    return entry;
+}
+
+/*
  * The texture a mesh draw samples.
  *
  * `texture`, when the caller has one, is a handle from
@@ -10917,6 +10976,7 @@ void ApplyGsDrawEnv(DrawCommand &command)
     {
         std::memcpy(command.alpha_test, g_gs_alpha_test_raw,
                     sizeof(command.alpha_test));
+        command.alpha_test[3] = g_quad_raw_alpha ? 1.0f : 0.0f;
     }
 
     /*
@@ -15509,6 +15569,7 @@ static void DrawTexturedQuadImpl(const sceGsTex0 *tex0,
     float uv_scale_w;
     float uv_scale_h;
     SDL_GPUTexture *texture;
+    bool  raw_alpha = false;
 
     if (grain_draw)
     {
@@ -15520,7 +15581,12 @@ static void DrawTexturedQuadImpl(const sceGsTex0 *tex0,
     }
     else
     {
-        TextureEntry *entry = GetTexture(tex0);
+        /* A sprite whose GS alpha test is live and reads texture alpha: give
+         * it the texels' own alpha (see GetTextureRawAlpha). */
+        raw_alpha = g_2d_alpha_test_scope > 0 && g_gs_alpha_test_raw[0] != 0.0f &&
+                    tex0 != nullptr && tex0->TCC != 0 && font_bank < 0 &&
+                    !video_draw;
+        TextureEntry *entry = raw_alpha ? GetTextureRawAlpha(tex0) : GetTexture(tex0);
         if (entry == nullptr || entry->texture == nullptr)
         {
             return;
@@ -15556,9 +15622,11 @@ static void DrawTexturedQuadImpl(const sceGsTex0 *tex0,
      * pair wraps -- see ReiPan_RendererDrawTexturedQuadClamp's note. */
     const bool repeat_uv = (clamp & 0x3ull) == 0 && ((clamp >> 2) & 0x3ull) == 0;
 
+    g_quad_raw_alpha = raw_alpha;
     QueueQuad(texture, tex_width, tex_height, vertices,
               true, repeat_uv, min_linear, mag_linear, DRAW_SOURCE_GENERIC,
               depth_test, depth_compare, clip_z_reversed);
+    g_quad_raw_alpha = false;
 }
 
 void ReiPan_RendererDrawTexturedQuad(const sceGsTex0 *tex0,

@@ -26,6 +26,10 @@ void ReiPan_GsSetUploadObserver(void (*observer)(const sceGsLoadImage *image,
                                 void *user);
 void ReiPan_GsStore(sceGsStoreImage *sp, unsigned char *out);
 unsigned char *ReiPan_GsDownloadTexture(sceGsTex0 *tex0, uint64_t *hash);
+/* The same decode with the texel alpha left as the GS stores it (0x80 is
+ * opaque, up to 0xff), for draws that run the GS alpha test on it -- see
+ * GetTextureRawAlpha() in the renderer.  TCC=RGB reads as 0x80. */
+unsigned char *ReiPan_GsDownloadTextureRawAlpha(sceGsTex0 *tex0);
 uint64_t ReiPan_GetTextureHash(sceGsTex0 *tex0);
 
 void ReiPan_GsResetFrameMetrics(void);

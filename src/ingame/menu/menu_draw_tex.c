@@ -14,6 +14,7 @@
 #include "system/eeiop/fileload.h"          // FileLoadCancel
 #include "system/os/eecdvd.h"               // LoadReq, IsLoadEnd
 #include "system/os/sys_heap.h"             // GetSystemHeapWrkP
+#include "reipan/rendering/reipan_renderer.h" // PC: ReiPan_RendererSet2dAlphaTest
 
 
 // ══════════════════════════════════════════════════════════════════════
@@ -342,6 +343,9 @@ MENU_PIC::~MENU_PIC()
 // ALPHA / TEST. In dissolve mode, while a fade runs, four extra additive
 // passes come first: alpha alpha / n, alpha test ref fade + 4n - 8 (n 1..4),
 // which soften the dissolve edge. fix replaces ALPHA by a FIX blend.
+// PC: the dissolve is the GS alpha test on the picture's own alpha, which the
+// host renderer applies to 2D draws only inside ReiPan_RendererSet2dAlphaTest;
+// without it the developed picture appeared at once in the darkroom.
 // FF3 0x0020a098
 
 void MENU_PIC::DrawSlot(int slot, u_char alpha, u_long alphar, u_long test)
@@ -363,6 +367,8 @@ void MENU_PIC::DrawSlot(int slot, u_char alpha, u_long alphar, u_long test)
     tex->h = h;
     tex->w = w;
 
+    if (mode == 1)
+        ReiPan_RendererSet2dAlphaTest(1);   // PC
     if (fade >= 0 && mode == 1)
     {
         n = 0;
@@ -387,6 +393,8 @@ void MENU_PIC::DrawSlot(int slot, u_char alpha, u_long alphar, u_long test)
     load[slot]->test   = test;
     load[slot]->Draw(x, y, z, pri,
                     rgb[0], rgb[1], rgb[2], (u_char)a, rot);
+    if (mode == 1)
+        ReiPan_RendererSet2dAlphaTest(0);   // PC
 }
 
 // ──────────────────────────────────────────────────────────────────────

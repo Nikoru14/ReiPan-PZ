@@ -622,6 +622,9 @@ static unsigned char AdjustPS2Alpha(unsigned char alpha)
     return alpha <= 127 ? (unsigned char)(alpha << 1) : (unsigned char)0xff;
 }
 
+/* Set by ReiPan_GsDownloadTextureRawAlpha() around its decode. */
+static bool g_download_raw_alpha;
+
 namespace ReiPan::GS
 {
 GSHelper::GSHelper() : mem_(kGsVramSize)
@@ -1641,6 +1644,11 @@ unsigned char *ReiPan_GsDownloadTexture(sceGsTex0 *tex0, uint64_t *hash)
          * always samples RGBA, so represent that mode with opaque sampled
          * alpha and leave the vertex/material alpha in control.
          */
+        if (g_download_raw_alpha)
+        {
+            g_texture_buffer[i] = tex0->TCC == 0 ? 0x80 : g_texture_buffer[i];
+            continue;
+        }
         g_texture_buffer[i] =
             tex0->TCC == 0 ? 0xff : AdjustPS2Alpha(g_texture_buffer[i]);
     }
@@ -1652,6 +1660,14 @@ unsigned char *ReiPan_GsDownloadTexture(sceGsTex0 *tex0, uint64_t *hash)
     g_gs_frame_metrics.download_ms += (double)(NowNs() - t0) / 1000000.0;
 
     return g_texture_buffer.data();
+}
+
+unsigned char *ReiPan_GsDownloadTextureRawAlpha(sceGsTex0 *tex0)
+{
+    g_download_raw_alpha = true;
+    unsigned char *texels = ReiPan_GsDownloadTexture(tex0, nullptr);
+    g_download_raw_alpha = false;
+    return texels;
 }
 
 uint64_t ReiPan_GetTextureHash(sceGsTex0 *tex0)
